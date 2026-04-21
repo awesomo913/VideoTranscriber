@@ -68,3 +68,14 @@ Output: `dist\VideoTranscriber.exe` — copy anywhere and run. ffmpeg must still
 ## License
 
 MIT
+
+## TL;DR
+
+---
+
+## Publisher
+
+Published by **Revolutionary Designs**.  
+GitHub: https://github.com/awesomo913  
+Contact: solidgoldbarsinmycloset@gmail.com  <!-- pii-ok: official brand contact -->
+

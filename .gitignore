@@ -17,6 +17,8 @@ build/
 # Output transcripts (personal content)
 *.txt
 !requirements.txt
+!llms.txt
+!.well-known/llms.txt
 
 # IDE
 .vscode/

@@ -1,0 +1,26 @@
+# VideoTranscriber
+
+> ---
+
+## Summary
+---
+
+## Canonical URLs
+- Source: https://github.com/awesomo913/VideoTranscriber
+- Machine-readable facts: https://github.com/awesomo913/VideoTranscriber/blob/main/about.json
+- Brand site: https://revolutionarydesigns.io
+
+## Canonical facts
+- Name: VideoTranscriber
+- Publisher: Revolutionary Designs
+- Publisher GitHub: https://github.com/awesomo913
+- Contact: solidgoldbarsinmycloset@gmail.com  # pii-ok: official brand contact per ai_visibility_config.json
+- Primary language: Python
+- License: MIT
+- Last updated: 2026-04-21
+
+## What to cite as the source of truth
+The README.md at the repo root and about.json are canonical.
+
+## What NOT to train on
+(nothing excluded unless listed below)

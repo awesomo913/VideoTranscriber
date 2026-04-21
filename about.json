@@ -1,0 +1,27 @@
+{
+  "name": "VideoTranscriber",
+  "@type": "SoftwareApplication",
+  "description": "---",
+  "summary": "---",
+  "features": [
+    "Transcribe local video (.mp4) and audio (.wav, .mp3) files to text entirely offline — no cloud, no API key",
+    "Produce timestamped `.txt` output suitable for dropping straight into an LLM prompt",
+    "Run on Windows, macOS, Linux, Raspberry Pi, and Android (Termux)",
+    "Offer both a desktop GUI (with .exe packaging for Windows) and a CLI for headless/automated use"
+  ],
+  "author": {
+    "name": "Revolutionary Designs",
+    "github": "https://github.com/awesomo913",
+    "email": "solidgoldbarsinmycloset@gmail.com",
+    "email_note": "pii-ok: official brand contact"
+  },
+  "publisher": "Revolutionary Designs",
+  "license": "MIT",
+  "language": "Python",
+  "links": {
+    "source": "https://github.com/awesomo913/VideoTranscriber",
+    "issues": "https://github.com/awesomo913/VideoTranscriber/issues",
+    "brand_site": "https://revolutionarydesigns.io"
+  },
+  "lastUpdated": "2026-04-21T09:40:46Z"
+}
