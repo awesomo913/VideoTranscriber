@@ -1,0 +1,37 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+*.spec
+
+# Models (downloaded at runtime — too large to commit)
+*.bin
+*.pt
+*.ot
+*.tflite
+
+# Output transcripts (personal content)
+*.txt
+!requirements.txt
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+logs/
+*.log
+
+# Env
+.env
+.venv/
+venv/
