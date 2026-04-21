@@ -17,8 +17,10 @@ Usage:
 """
 
 import argparse
+import json
 import logging
 import shutil
+import subprocess
 import sys
 from datetime import timedelta
 from pathlib import Path
@@ -50,6 +52,20 @@ def format_timestamp(seconds: float) -> str:
 
 def check_ffmpeg() -> bool:
     return shutil.which("ffmpeg") is not None
+
+
+def has_audio_stream(file_path: Path) -> bool:
+    """Return True if the file contains at least one audio stream."""
+    try:
+        result = subprocess.run(
+            ["ffprobe", "-v", "quiet", "-print_format", "json",
+             "-show_streams", "-select_streams", "a", str(file_path)],
+            capture_output=True, text=True, timeout=10,
+        )
+        streams = json.loads(result.stdout).get("streams", [])
+        return len(streams) > 0
+    except Exception:
+        return True  # if ffprobe fails, let faster-whisper try anyway
 
 
 # ---------------------------------------------------------------------------
@@ -91,6 +107,11 @@ def transcribe(
             "  Mac:     brew install ffmpeg\n"
             "  Linux:   sudo apt install ffmpeg"
         )
+    if not has_audio_stream(input_path):
+        raise ValueError(
+            f"No audio stream found in '{input_path.name}'. "
+            "This file is video-only and cannot be transcribed."
+        )
 
     try:
         from faster_whisper import WhisperModel
@@ -107,9 +128,9 @@ def transcribe(
     logger.info("Transcribing: %s", input_path.name)
 
     def _run(m: "WhisperModel"):
-        segs, inf = m.transcribe(str(input_path), beam_size=5)
-        collected = []
         try:
+            segs, inf = m.transcribe(str(input_path), beam_size=5)
+            collected = []
             for seg in segs:
                 collected.append(seg)
                 if on_segment:
