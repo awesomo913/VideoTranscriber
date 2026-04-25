@@ -13,6 +13,9 @@ Setup:
 
 Usage:
     python transcribe_video.py devlog.mp4
+    python transcribe_video.py a.mp4 b.wav c.mp3
+    python transcribe_video.py --dir ./recordings
+    python transcribe_video.py --dir ./recordings --recursive
     python transcribe_video.py devlog.mp4 --model base --no-timestamps
 """
 
@@ -24,7 +27,7 @@ import subprocess
 import sys
 from datetime import timedelta
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Callable, List, Optional, Tuple, Union
 
 SUPPORTED_EXTENSIONS = {".mp4", ".mp3", ".wav", ".m4a", ".webm", ".ogg", ".flac", ".aac", ".mpeg"}
 DEFAULT_MODEL = "small"
@@ -72,27 +75,59 @@ def has_audio_stream(file_path: Path) -> bool:
 # Core transcription (importable)
 # ---------------------------------------------------------------------------
 
-def transcribe(
+def _whisper_model_class():
+    try:
+        from faster_whisper import WhisperModel
+        return WhisperModel
+    except ImportError:
+        raise ImportError("Run: uv pip install faster-whisper")
+
+
+def _load_whisper(model_name: str, device: str, compute: str):
+    WM = _whisper_model_class()
+    return WM(model_name, device=device, compute_type=compute)
+
+
+def _run_transcribe_attempt(
+    model: object,
     input_path: Path,
-    model_name: str = DEFAULT_MODEL,
-    timestamps: bool = True,
-    on_segment: Optional[Callable[[int, str], None]] = None,
+    on_segment: Optional[Callable[[int, str], None]],
+) -> Union[Tuple[list, object], Tuple[None, None]]:
+    """Return (segments, info) or (None, None) if CUDA failed and CPU should be tried."""
+    try:
+        segs, inf = model.transcribe(str(input_path), beam_size=5)
+        collected = []
+        for seg in segs:
+            collected.append(seg)
+            if on_segment:
+                on_segment(len(collected), seg.text.strip()[:60])
+    except RuntimeError as exc:
+        keywords = ("cublas", "cuda", "cufft", "dll", "library")
+        if any(k in str(exc).lower() for k in keywords):
+            return None, None
+        raise
+    return collected, inf
+
+
+def _write_transcript_text(
+    input_path: Path, segments: list, info: object, timestamps: bool
 ) -> Path:
-    """
-    Transcribe *input_path* and write a .txt file in the same directory.
+    lines = []
+    for seg in segments:
+        text = seg.text.strip()
+        if not text:
+            continue
+        prefix = f"{format_timestamp(seg.start)} " if timestamps else ""
+        lines.append(f"{prefix}{text}")
+    output_path = input_path.with_suffix(".txt")
+    output_path.write_text("\n".join(lines), encoding="utf-8")
+    duration = str(timedelta(seconds=int(info.duration)))
+    logger.info("Done — %d segments | %s | lang: %s", len(lines), duration, info.language)
+    logger.info("Saved: %s", output_path)
+    return output_path
 
-    Args:
-        input_path:   Path to the media file.
-        model_name:   Whisper model size (tiny/base/small/medium/large-v3).
-        timestamps:   Whether to prefix each segment with [HH:MM:SS].
-        on_segment:   Optional callback(segment_count, segment_text_preview).
-                      Called from whichever thread runs this function.
 
-    Returns:
-        Path to the written .txt file.
-    """
-    input_path = Path(input_path)
-
+def _validate_media_path(input_path: Path) -> None:
     if input_path.suffix.lower() not in SUPPORTED_EXTENSIONS:
         raise ValueError(
             f"Unsupported format: {input_path.suffix!r}. "
@@ -113,56 +148,145 @@ def transcribe(
             "This file is video-only and cannot be transcribed."
         )
 
-    try:
-        from faster_whisper import WhisperModel
-    except ImportError:
-        raise ImportError("Run: uv pip install faster-whisper")
+
+def collect_paths(
+    files: List[Path],
+    directory: Optional[Path] = None,
+    recursive: bool = False,
+) -> List[Path]:
+    """
+    Build a sorted, de-duplicated list of media paths from explicit files
+    and/or an optional directory scan.
+    """
+    out: List[Path] = []
+    seen: set = set()
+    if directory is not None:
+        d = Path(directory)
+        if not d.is_dir():
+            raise NotADirectoryError(f"Not a directory: {directory}")
+        pattern = "**/*" if recursive else "*"
+        for p in sorted(d.glob(pattern)):
+            if p.is_file() and p.suffix.lower() in SUPPORTED_EXTENSIONS:
+                r = p.resolve()
+                if r not in seen:
+                    seen.add(r)
+                    out.append(p)
+    for f in files:
+        p = Path(f)
+        r = p.resolve()
+        if r not in seen:
+            seen.add(r)
+            out.append(p)
+    return out
+
+
+def transcribe(
+    input_path: Path,
+    model_name: str = DEFAULT_MODEL,
+    timestamps: bool = True,
+    on_segment: Optional[Callable[[int, str], None]] = None,
+) -> Path:
+    """
+    Transcribe *input_path* and write a .txt file in the same directory.
+
+    Args:
+        input_path:   Path to the media file.
+        model_name:   Whisper model size (tiny/base/small/medium/large-v3).
+        timestamps:   Whether to prefix each segment with [HH:MM:SS].
+        on_segment:   Optional callback(segment_count, segment_text_preview).
+                      Called from whichever thread runs this function.
+
+    Returns:
+        Path to the written .txt file.
+    """
+    input_path = Path(input_path)
+    _validate_media_path(input_path)
 
     size = MODEL_SIZES.get(model_name, "?")
     logger.info("Loading model '%s' (~%s — downloads on first use)…", model_name, size)
-
-    def _load(device: str, compute: str) -> "WhisperModel":
-        return WhisperModel(model_name, device=device, compute_type=compute)
-
-    model = _load("auto", "auto")
+    model = _load_whisper(model_name, "auto", "auto")
     logger.info("Transcribing: %s", input_path.name)
 
-    def _run(m: "WhisperModel"):
-        try:
-            segs, inf = m.transcribe(str(input_path), beam_size=5)
-            collected = []
-            for seg in segs:
-                collected.append(seg)
-                if on_segment:
-                    on_segment(len(collected), seg.text.strip()[:60])
-        except RuntimeError as exc:
-            keywords = ("cublas", "cuda", "cufft", "dll", "library")
-            if any(k in str(exc).lower() for k in keywords):
-                return None, None  # signal CPU fallback needed
-            raise
-        return collected, inf
-
-    segments, info = _run(model)
+    segments, info = _run_transcribe_attempt(model, input_path, on_segment)
     if segments is None:
-        logger.warning("GPU init failed — retrying on CPU.")
-        model = _load("cpu", "int8")
-        segments, info = _run(model)
+        logger.warning("GPU path failed — retrying on CPU.")
+        model = _load_whisper(model_name, "cpu", "int8")
+        segments, info = _run_transcribe_attempt(model, input_path, on_segment)
+    if segments is None:
+        raise RuntimeError("Transcription failed on both GPU and CPU.")
 
-    lines = []
-    for seg in segments:
-        text = seg.text.strip()
-        if not text:
+    return _write_transcript_text(input_path, segments, info, timestamps)
+
+
+def transcribe_batch(
+    paths: List[Path],
+    model_name: str = DEFAULT_MODEL,
+    timestamps: bool = True,
+    on_segment: Optional[Callable[[int, str], None]] = None,
+    on_file: Optional[Callable[[int, int, Path], None]] = None,
+) -> List[Tuple[Path, Optional[Exception]]]:
+    """
+    Transcribe many files using one model load when possible (CPU fallback
+    applies to the rest of the queue once triggered).
+
+    Args:
+        paths:        Media files (callers should use collect_paths).
+        on_file:      Optional callback (1-based index, total, path) before each file.
+
+    Returns:
+        List of (output .txt path or input path on total failure, error or None).
+    """
+    _whisper_model_class()
+    if not paths:
+        return []
+
+    size = MODEL_SIZES.get(model_name, "?")
+    logger.info(
+        "Batch: %d file(s) — loading model '%s' (~%s)…",
+        len(paths), model_name, size,
+    )
+
+    model = _load_whisper(model_name, "auto", "auto")
+    using_cpu = False
+    results: List[Tuple[Path, Optional[Exception]]] = []
+
+    for i, input_path in enumerate(paths, start=1):
+        input_path = Path(input_path)
+        if on_file:
+            on_file(i, len(paths), input_path)
+
+        try:
+            _validate_media_path(input_path)
+        except (ValueError, FileNotFoundError, EnvironmentError) as exc:
+            logger.error("[%d/%d] %s — %s", i, len(paths), input_path.name, exc)
+            results.append((input_path, exc))
             continue
-        prefix = f"{format_timestamp(seg.start)} " if timestamps else ""
-        lines.append(f"{prefix}{text}")
 
-    output_path = input_path.with_suffix(".txt")
-    output_path.write_text("\n".join(lines), encoding="utf-8")
+        logger.info("Transcribing [%d/%d]: %s", i, len(paths), input_path.name)
 
-    duration = str(timedelta(seconds=int(info.duration)))
-    logger.info("Done — %d segments | %s | lang: %s", len(lines), duration, info.language)
-    logger.info("Saved: %s", output_path)
-    return output_path
+        segments, info = _run_transcribe_attempt(model, input_path, on_segment)
+        if segments is None and not using_cpu:
+            logger.warning("GPU path failed — switching to CPU for remaining files.")
+            model = _load_whisper(model_name, "cpu", "int8")
+            using_cpu = True
+            segments, info = _run_transcribe_attempt(model, input_path, on_segment)
+
+        if segments is None:
+            err = RuntimeError("Transcription failed on both GPU and CPU.")
+            logger.error("[%d/%d] %s — %s", i, len(paths), input_path.name, err)
+            results.append((input_path, err))
+            continue
+
+        try:
+            out = _write_transcript_text(input_path, segments, info, timestamps)
+            results.append((out, None))
+        except Exception as exc:
+            logger.exception("[%d/%d] %s", i, len(paths), input_path.name)
+            results.append((input_path, exc))
+
+    ok = sum(1 for _, e in results if e is None)
+    logger.info("Batch finished: %d/%d succeeded.", ok, len(results))
+    return results
 
 
 # ---------------------------------------------------------------------------
@@ -176,11 +300,30 @@ def _build_parser() -> argparse.ArgumentParser:
         epilog=(
             "Examples:\n"
             "  python transcribe_video.py devlog.mp4\n"
+            "  python transcribe_video.py a.mp4 b.wav c.mp3\n"
+            "  python transcribe_video.py --dir ./recordings\n"
+            "  python transcribe_video.py --dir ./vids --recursive\n"
             "  python transcribe_video.py devlog.mp4 --model base\n"
             "  python transcribe_video.py devlog.wav --no-timestamps\n"
         ),
     )
-    p.add_argument("input_file", type=Path)
+    p.add_argument(
+        "input_files",
+        type=Path,
+        nargs="*",
+        help="One or more media files (or use --dir).",
+    )
+    p.add_argument(
+        "--dir", "-d",
+        type=Path,
+        metavar="FOLDER",
+        help="Transcribe every supported file in this folder (combine with file args).",
+    )
+    p.add_argument(
+        "--recursive", "-r",
+        action="store_true",
+        help="With --dir, include subfolders.",
+    )
     p.add_argument(
         "--model", default=DEFAULT_MODEL,
         choices=list(MODEL_SIZES.keys()),
@@ -202,11 +345,38 @@ def main() -> None:
 
     args = _build_parser().parse_args()
     try:
-        transcribe(
-            input_path=args.input_file.resolve(),
-            model_name=args.model,
-            timestamps=not args.no_timestamps,
+        paths = collect_paths(
+            list(args.input_files),
+            directory=args.dir,
+            recursive=args.recursive,
         )
+    except (NotADirectoryError, OSError) as exc:
+        logger.error("%s", exc)
+        sys.exit(1)
+
+    if not paths:
+        logger.error("No input files. Pass one or more files and/or use --dir FOLDER.")
+        sys.exit(1)
+
+    try:
+        if len(paths) == 1:
+            transcribe(
+                input_path=paths[0].resolve(),
+                model_name=args.model,
+                timestamps=not args.no_timestamps,
+            )
+        else:
+            res = transcribe_batch(
+                paths=[p.resolve() for p in paths],
+                model_name=args.model,
+                timestamps=not args.no_timestamps,
+                on_file=lambda i, t, p: logger.info("— starting %d/%d: %s —", i, t, p.name),
+            )
+            failed = [r for r in res if r[1] is not None]
+            if failed:
+                for target, err in failed:
+                    logger.error("Failed: %s — %s", target, err)
+                sys.exit(1)
     except (ValueError, FileNotFoundError, EnvironmentError, ImportError) as exc:
         logger.error("%s", exc)
         sys.exit(1)

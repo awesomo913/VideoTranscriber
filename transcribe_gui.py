@@ -18,7 +18,7 @@ from tkinter import filedialog, messagebox
 sys.path.insert(0, str(Path(__file__).parent))
 from transcribe_video import (
     SUPPORTED_EXTENSIONS, MODEL_SIZES, DEFAULT_MODEL,
-    check_ffmpeg, transcribe,
+    check_ffmpeg, collect_paths, transcribe, transcribe_batch,
 )
 
 ctk.set_appearance_mode("dark")
@@ -45,6 +45,7 @@ class App(ctk.CTk):
         self.resizable(True, True)
 
         self._output_path: Path | None = None
+        self._paths: list[Path] = []
         self._running = False
 
         self._build_ui()
@@ -72,22 +73,37 @@ class App(ctk.CTk):
         card.grid(row=2, column=0, padx=16, pady=4, sticky="ew")
         card.grid_columnconfigure(1, weight=1)
 
-        # File row
-        ctk.CTkLabel(card, text="File:", font=FONT_BODY).grid(
-            row=0, column=0, padx=(14, 8), pady=(14, 6), sticky="w")
-        self._file_var = ctk.StringVar(value="No file selected")
-        self._file_label = ctk.CTkLabel(card, textvariable=self._file_var,
-                                        font=FONT_MONO, anchor="w",
-                                        text_color="#aabbcc")
+        # File queue row
+        ctk.CTkLabel(card, text="Queue:", font=FONT_BODY).grid(
+            row=0, column=0, padx=(14, 8), pady=(14, 6), sticky="nw")
+        self._file_var = ctk.StringVar(value="No files — use buttons below")
+        self._file_label = ctk.CTkLabel(
+            card, textvariable=self._file_var,
+            font=FONT_MONO, anchor="w", justify="left",
+            text_color="#aabbcc", wraplength=400,
+        )
         self._file_label.grid(row=0, column=1, padx=4, pady=(14, 6), sticky="ew")
-        ctk.CTkButton(card, text="Browse…", width=90, font=FONT_BODY,
-                      command=self._browse).grid(row=0, column=2, padx=(4, 14), pady=(14, 6))
+        btn_frame = ctk.CTkFrame(card, fg_color="transparent")
+        btn_frame.grid(row=0, column=2, padx=(4, 14), pady=(14, 6), sticky="ne")
+        ctk.CTkButton(btn_frame, text="File(s)…", width=80, font=FONT_BODY,
+                      command=self._browse_files).pack(pady=2)
+        ctk.CTkButton(btn_frame, text="Folder…", width=80, font=FONT_BODY,
+                      command=self._browse_folder).pack(pady=2)
+        ctk.CTkButton(btn_frame, text="Clear", width=80, font=FONT_BODY,
+                      command=self._clear_queue, fg_color="#444", hover_color="#555").pack(pady=2)
+
+        # Subfolder option (for folder add)
+        self._recursive_var = ctk.BooleanVar(value=False)
+        ctk.CTkCheckBox(
+            card, text="Subfolders (when using Folder…)",
+            variable=self._recursive_var, font=("Segoe UI", 11),
+        ).grid(row=1, column=1, columnspan=2, padx=4, pady=(0, 6), sticky="w")
 
         # Model row
         ctk.CTkLabel(card, text="Model:", font=FONT_BODY).grid(
-            row=1, column=0, padx=(14, 8), pady=6, sticky="w")
+            row=2, column=0, padx=(14, 8), pady=6, sticky="w")
         model_frame = ctk.CTkFrame(card, fg_color="transparent")
-        model_frame.grid(row=1, column=1, columnspan=2, padx=4, pady=6, sticky="w")
+        model_frame.grid(row=2, column=1, columnspan=2, padx=4, pady=6, sticky="w")
         self._model_var = ctk.StringVar(value=DEFAULT_MODEL)
         ctk.CTkComboBox(model_frame, values=list(MODEL_SIZES.keys()),
                         variable=self._model_var, width=130, font=FONT_BODY,
@@ -100,11 +116,11 @@ class App(ctk.CTk):
 
         # Timestamps row
         ctk.CTkLabel(card, text="Output:", font=FONT_BODY).grid(
-            row=2, column=0, padx=(14, 8), pady=(6, 14), sticky="w")
+            row=3, column=0, padx=(14, 8), pady=(6, 14), sticky="w")
         self._ts_var = ctk.BooleanVar(value=True)
         ctk.CTkCheckBox(card, text="Include [HH:MM:SS] timestamps",
                         variable=self._ts_var, font=FONT_BODY).grid(
-            row=2, column=1, padx=4, pady=(6, 14), sticky="w")
+            row=3, column=1, padx=4, pady=(6, 14), sticky="w")
 
         # ── Transcribe button ──────────────────────────────────────────
         self._btn = ctk.CTkButton(self, text="Transcribe", height=42,
@@ -163,14 +179,65 @@ class App(ctk.CTk):
     # Event handlers
     # ------------------------------------------------------------------
 
-    def _browse(self):
-        path = filedialog.askopenfilename(
-            title="Select video or audio file",
+    def _add_paths(self, new_paths: list[Path]) -> None:
+        seen = {p.resolve() for p in self._paths}
+        for p in new_paths:
+            if p.suffix.lower() not in SUPPORTED_EXTENSIONS:
+                continue
+            r = p.resolve()
+            if r not in seen:
+                seen.add(r)
+                self._paths.append(p)
+        self._refresh_queue_label()
+        self._set_status("Ready." if self._paths else "No files in queue.")
+
+    def _refresh_queue_label(self) -> None:
+        if not self._paths:
+            self._file_var.set("No files — use File(s)… or Folder…")
+            return
+        if len(self._paths) == 1:
+            self._file_var.set(str(self._paths[0]))
+            return
+        # Multi — show first two + count
+        lines = [str(p) for p in self._paths[:2]]
+        rest = len(self._paths) - 2
+        if rest > 0:
+            lines.append(f"… and {rest} more ({len(self._paths)} total)")
+        self._file_var.set("\n".join(lines))
+
+    def _clear_queue(self) -> None:
+        self._paths = []
+        self._refresh_queue_label()
+        self._set_status("Queue cleared.")
+
+    def _browse_files(self) -> None:
+        paths = filedialog.askopenfilenames(
+            title="Select one or more video/audio files",
             filetypes=FILTER_EXTS,
         )
-        if path:
-            self._file_var.set(path)
-            self._set_status("Ready.")
+        if paths:
+            self._add_paths([Path(p) for p in paths])
+
+    def _browse_folder(self) -> None:
+        d = filedialog.askdirectory(title="Select folder with media files")
+        if not d:
+            return
+        try:
+            found = collect_paths(
+                [],
+                directory=Path(d),
+                recursive=self._recursive_var.get(),
+            )
+        except OSError as exc:
+            messagebox.showerror("Folder", str(exc))
+            return
+        if not found:
+            messagebox.showinfo(
+                "Folder",
+                "No supported media files in that folder.",
+            )
+            return
+        self._add_paths(found)
 
     def _update_model_hint(self, *_):
         model = self._model_var.get()
@@ -187,9 +254,11 @@ class App(ctk.CTk):
     def _start_transcribe(self):
         if self._running:
             return
-        path_str = self._file_var.get()
-        if not path_str or path_str == "No file selected":
-            messagebox.showwarning("No file", "Please browse to a video or audio file first.")
+        if not self._paths:
+            messagebox.showwarning(
+                "No files",
+                "Add one or more files (File(s)…), or all files in a folder (Folder…).",
+            )
             return
         self._running = True
         self._output_path = None
@@ -199,25 +268,90 @@ class App(ctk.CTk):
         self._set_preview("")
         self._progress.start()
         self._set_status("Starting…")
-        threading.Thread(target=self._run_transcribe,
-                         args=(Path(path_str),), daemon=True).start()
+        paths = [p.resolve() for p in self._paths]
+        threading.Thread(
+            target=self._run_transcribe, args=(paths,), daemon=True
+        ).start()
 
-    def _run_transcribe(self, input_path: Path):
-        def on_seg(count: int, text: str):
+    def _run_transcribe(self, paths: list[Path]) -> None:
+        def on_seg(count: int, text: str) -> None:
             self.after(0, self._set_status, f"Segment {count}: {text[:50]}…")
 
-        try:
-            out = transcribe(
-                input_path=input_path,
-                model_name=self._model_var.get(),
-                timestamps=self._ts_var.get(),
-                on_segment=on_seg,
+        def on_file(i: int, total: int, p: Path) -> None:
+            self.after(
+                0, self._set_status,
+                f"File {i}/{total}: {p.name}",
             )
-            self.after(0, self._on_done, out)
+
+        try:
+            if len(paths) == 1:
+                out = transcribe(
+                    input_path=paths[0],
+                    model_name=self._model_var.get(),
+                    timestamps=self._ts_var.get(),
+                    on_segment=on_seg,
+                )
+                self.after(0, self._on_done, out, None)
+            else:
+                res = transcribe_batch(
+                    paths=paths,
+                    model_name=self._model_var.get(),
+                    timestamps=self._ts_var.get(),
+                    on_segment=on_seg,
+                    on_file=on_file,
+                )
+                self.after(0, self._on_batch_done, res)
         except Exception as exc:
             self.after(0, self._on_error, str(exc))
 
-    def _on_done(self, output_path: Path):
+    def _on_batch_done(
+        self, res: list[tuple[Path, Exception | None]]
+    ) -> None:
+        failed = [(p, e) for p, e in res if e is not None]
+        ok = [p for p, e in res if e is None]
+        self._running = False
+        self._progress.stop()
+        self._progress.set(1)
+        self._btn.configure(state="normal", text="Transcribe")
+        if not ok and failed:
+            self._on_error("; ".join(f"{p.name}: {e}" for p, e in failed))
+            return
+        if failed:
+            self._set_status(
+                f"Done with errors: {len(ok)} ok, {len(failed)} failed. "
+                f"Check messages.",
+                color=WARNING,
+            )
+            messagebox.showwarning(
+                "Batch finished",
+                f"{len(ok)} succeeded, {len(failed)} failed.\n"
+                + "\n".join(f"• {p.name}: {e}" for p, e in failed[:8]),
+            )
+        else:
+            self._set_status(
+                f"All {len(ok)} file(s) transcribed.",
+                color=SUCCESS,
+            )
+        # Preview last successful .txt
+        last_txt = next((p for p in reversed(ok) if p.suffix == ".txt"), None)
+        if last_txt and last_txt.exists():
+            self._output_path = last_txt
+            self._copy_btn.configure(state="normal")
+            self._open_btn.configure(state="normal")
+            try:
+                self._set_preview(last_txt.read_text(encoding="utf-8"))
+            except OSError:
+                pass
+        else:
+            self._copy_btn.configure(state="normal")
+            self._open_btn.configure(state="normal")
+            self._set_preview(
+                "\n\n".join(f"✓ {p.name}" for p in ok) if ok else ""
+            )
+
+    def _on_done(
+        self, output_path: Path, _unused: None = None
+    ) -> None:
         self._running = False
         self._output_path = output_path
         self._progress.stop()
@@ -229,7 +363,7 @@ class App(ctk.CTk):
         try:
             text = output_path.read_text(encoding="utf-8")
             self._set_preview(text)
-        except Exception:
+        except OSError:
             pass
 
     def _on_error(self, msg: str):

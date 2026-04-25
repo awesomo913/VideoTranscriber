@@ -12,7 +12,7 @@ public-visible: true
 
 ## 0. Pickup for Claude Code (read this first)
 - **Stack:** Python 3.11+, `faster-whisper`, `customtkinter`, system `ffmpeg`/`ffprobe`. Not a Vercel/Next project — ignore Vercel-specific skill hints for this repo.
-- **Entry points:** `python transcribe_video.py` (CLI), `python transcribe_gui.py` (optional path as first arg to preload).
+- **Entry points:** `python transcribe_video.py` (CLI; one or many files, or `--dir`), `python transcribe_gui.py`.
 - **Critical implementation detail:** `WhisperModel.transcribe()` runs language detection *before* yielding segments. Any CUDA `RuntimeError` must be caught around the **entire** `transcribe()` call, then retry on CPU — not only inside the segment loop.
 - **Video-only files:** Some exports (e.g. Gemini) have no audio track. Pre-flight: `ffprobe` check (`has_audio_stream` in `transcribe_video.py`); user-facing error: *No audio stream found in this file — it is video-only.*
 - **AI routing (public):** `llms.txt`, `.well-known/llms.txt`, `about.json`, `.ai-visible` — `*.gitignore` must keep `!llms.txt` and `!/.well-known/llms.txt` so these are not ignored.
@@ -38,6 +38,10 @@ The user records 15–30 minute dev log videos and wants to feed the transcripts
 
 ## 4. History
 
+### 2026-04-25 (later) — Batch / multi-file
+- **CLI:** `transcribe_batch()` + `collect_paths()`; single model load for the queue; `python transcribe_video.py` accepts multiple files, optional `--dir` / `--recursive`.
+- **GUI:** File(s)… (multi-select), Folder…, Clear; optional “Subfolders”; status shows `File i/n`.
+
 ### 2026-04-25 — Public GitHub, bugfixes, large-file stress test
 - **User request:** Clean public push; then live test including larger files; hand off context for Claude.
 - **GitHub:** Public repo `awesomo913/VideoTranscriber` created; `HANDOFF` frontmatter `public-visible: true`; AI routing files injected; PII + GUI integrity checks passed before push.
@@ -62,7 +66,7 @@ The user records 15–30 minute dev log videos and wants to feed the transcripts
 - [ ] Test on macOS (MPS backend)
 - [ ] Test on Raspberry Pi (confirm tiny/base model timing)
 - [ ] Add drag-and-drop support to GUI (Windows: `tkinterdnd2` library)
-- [ ] Batch folder mode: transcribe all .mp4 in a chosen directory
+- [x] Batch folder mode: CLI `--dir` / `--recursive`, multiple file args; GUI File(s)… + Folder…
 - [ ] Progress bar with estimated % (using `info.duration` + segment timestamps)
 
 ## 7. Handoff checklist for the next AI

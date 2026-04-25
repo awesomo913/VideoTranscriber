@@ -20,9 +20,14 @@ uv pip install faster-whisper customtkinter
 # 3a. GUI
 python transcribe_gui.py
 
-# 3b. CLI
+# 3b. CLI — one file
 python transcribe_video.py devlog.mp4
 python transcribe_video.py devlog.mp4 --model base --no-timestamps
+
+# 3c. CLI — many files (one model load; stops with exit code 1 if any file fails)
+python transcribe_video.py a.mp4 b.wav meeting.m4a
+python transcribe_video.py --dir ./recordings
+python transcribe_video.py --dir ./recordings --recursive
 ```
 
 See [TUTORIAL.md](TUTORIAL.md) for full platform-specific setup (Windows / macOS / Linux / Raspberry Pi / Android).
@@ -39,6 +44,7 @@ See [TUTORIAL.md](TUTORIAL.md) for full platform-specific setup (Windows / macOS
 | **Auto CPU fallback** | Detects GPU; silently falls back to CPU if CUDA libs missing |
 | **Model choice** | tiny / base / **small** (default) / medium / large-v3 |
 | **GUI + CLI** | Desktop window or command line |
+| **Batch / folder** | CLI: multiple paths, `--dir`, `--recursive`. GUI: File(s)… or Folder… |
 | **Windows .exe** | Single-file executable via `build_exe.bat` |
 
 ---
