@@ -29,6 +29,13 @@ python transcribe_video.py devlog.mp4 --out-dir D:\exports   # optional; default
 python transcribe_video.py a.mp4 b.wav meeting.m4a
 python transcribe_video.py --dir ./recordings
 python transcribe_video.py --dir ./recordings --recursive
+
+# One merged .txt on Desktop (no per-file transcripts)
+python transcribe_video.py --dir "%USERPROFILE%\\Desktop\\videos" --combined-only
+# Merged file + individual .txt files
+python transcribe_video.py --dir ./recordings --combined
+# Custom merged path
+python transcribe_video.py --dir ./vids --combined-only --combined-out D:/all_transcripts.txt
 ```
 
 See [TUTORIAL.md](TUTORIAL.md) for full platform-specific setup (Windows / macOS / Linux / Raspberry Pi / Android).

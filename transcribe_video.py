@@ -139,20 +139,28 @@ def _run_transcribe_attempt(
     return collected, inf
 
 
-def _write_transcript_text(
-    input_path: Path,
-    segments: list,
-    info: object,
-    timestamps: bool,
-    output_dir: Optional[Path] = None,
-) -> Path:
-    lines = []
+def _lines_from_segments(segments: list, timestamps: bool) -> List[str]:
+    """Turn Whisper segments into transcript lines (non-empty text only)."""
+    lines: List[str] = []
     for seg in segments:
         text = seg.text.strip()
         if not text:
             continue
         prefix = f"{format_timestamp(seg.start)} " if timestamps else ""
         lines.append(f"{prefix}{text}")
+    return lines
+
+
+def _write_transcript_text(
+    input_path: Path,
+    segments: list,
+    info: object,
+    timestamps: bool,
+    output_dir: Optional[Path] = None,
+    lines: Optional[List[str]] = None,
+) -> Path:
+    if lines is None:
+        lines = _lines_from_segments(segments, timestamps)
     out_dir = output_dir if output_dir is not None else default_transcript_output_dir()
     output_path = _output_txt_path(input_path, out_dir)
     output_path.write_text("\n".join(lines), encoding="utf-8")
@@ -264,6 +272,8 @@ def transcribe_batch(
     on_segment: Optional[Callable[[int, str], None]] = None,
     on_file: Optional[Callable[[int, int, Path], None]] = None,
     output_dir: Optional[Path] = None,
+    combined_path: Optional[Path] = None,
+    write_individual_txts: bool = True,
 ) -> List[Tuple[Path, Optional[Exception]]]:
     """
     Transcribe many files using one model load when possible (CPU fallback
@@ -272,6 +282,10 @@ def transcribe_batch(
     Args:
         paths:        Media files (callers should use collect_paths).
         on_file:      Optional callback (1-based index, total, path) before each file.
+        combined_path: If set, append each successful transcript to this file
+                       (UTF-8) with a header per source file.
+        write_individual_txts: If False, only ``combined_path`` is written
+                               (must be set).
 
     Returns:
         List of (output .txt path or input path on total failure, error or None).
@@ -279,6 +293,19 @@ def transcribe_batch(
     _whisper_model_class()
     if not paths:
         return []
+
+    if not write_individual_txts and combined_path is None:
+        raise ValueError("write_individual_txts=False requires combined_path.")
+
+    combo_fp = None
+    if combined_path is not None:
+        cp = Path(combined_path)
+        cp.parent.mkdir(parents=True, exist_ok=True)
+        combo_fp = cp.open("w", encoding="utf-8")
+        combo_fp.write(
+            "Combined transcripts (offline faster-whisper)\n"
+            f"Sources: {len(paths)} file(s)\n\n"
+        )
 
     size = MODEL_SIZES.get(model_name, "?")
     logger.info(
@@ -318,13 +345,41 @@ def transcribe_batch(
             continue
 
         try:
-            out = _write_transcript_text(
-                input_path, segments, info, timestamps, output_dir=output_dir,
-            )
-            results.append((out, None))
+            lines = _lines_from_segments(segments, timestamps)
+            out: Optional[Path] = None
+            if write_individual_txts:
+                out = _write_transcript_text(
+                    input_path,
+                    segments,
+                    info,
+                    timestamps,
+                    output_dir=output_dir,
+                    lines=lines,
+                )
+            else:
+                duration = str(timedelta(seconds=int(info.duration)))
+                logger.info(
+                    "Done — %d segments | %s | lang: %s",
+                    len(lines), duration, info.language,
+                )
+
+            if combo_fp is not None:
+                combo_fp.write(f"{'=' * 80}\n")
+                combo_fp.write(f"File: {input_path.name}\n")
+                combo_fp.write(f"Path: {input_path.resolve()}\n")
+                combo_fp.write(f"[{i}/{len(paths)}]\n")
+                combo_fp.write(f"{'=' * 80}\n\n")
+                combo_fp.write("\n".join(lines))
+                combo_fp.write("\n\n")
+
+            results.append((out if out is not None else input_path, None))
         except Exception as exc:
             logger.exception("[%d/%d] %s", i, len(paths), input_path.name)
             results.append((input_path, exc))
+
+    if combo_fp is not None:
+        combo_fp.close()
+        logger.info("Combined transcript saved: %s", combined_path)
 
     ok = sum(1 for _, e in results if e is None)
     logger.info("Batch finished: %d/%d succeeded.", ok, len(results))
@@ -347,6 +402,8 @@ def _build_parser() -> argparse.ArgumentParser:
             "  python transcribe_video.py --dir ./vids --recursive\n"
             "  python transcribe_video.py devlog.mp4 --model base\n"
             "  python transcribe_video.py devlog.wav --no-timestamps\n"
+            "  python transcribe_video.py --dir ~/Desktop/videos --combined-only\n"
+            "  python transcribe_video.py --dir ./rec --combined --combined-out D:/all.txt\n"
         ),
     )
     p.add_argument(
@@ -378,6 +435,23 @@ def _build_parser() -> argparse.ArgumentParser:
         type=Path,
         metavar="FOLDER",
         help="Write .txt transcripts here (default: your Desktop).",
+    )
+    p.add_argument(
+        "--combined",
+        action="store_true",
+        help="Merge successful transcripts into one UTF-8 file (--combined-out).",
+    )
+    p.add_argument(
+        "--combined-out",
+        type=Path,
+        default=None,
+        metavar="FILE",
+        help="Path for merged transcript (default: Desktop/merged_transcripts.txt).",
+    )
+    p.add_argument(
+        "--combined-only",
+        action="store_true",
+        help="Only write the merged file (no per-source .txt on Desktop).",
     )
     return p
 
@@ -411,8 +485,19 @@ def main() -> None:
     )
     logger.info("Transcript output folder: %s", out_dir)
 
+    want_combined = args.combined or args.combined_only
+    combined_path: Optional[Path] = None
+    write_individual = not args.combined_only
+    if want_combined:
+        combined_path = (
+            args.combined_out.resolve()
+            if args.combined_out
+            else default_transcript_output_dir() / "merged_transcripts.txt"
+        )
+        logger.info("Merged output file: %s", combined_path)
+
     try:
-        if len(paths) == 1:
+        if len(paths) == 1 and not want_combined:
             transcribe(
                 input_path=paths[0].resolve(),
                 model_name=args.model,
@@ -426,6 +511,8 @@ def main() -> None:
                 timestamps=not args.no_timestamps,
                 on_file=lambda i, t, p: logger.info("— starting %d/%d: %s —", i, t, p.name),
                 output_dir=out_dir,
+                combined_path=combined_path,
+                write_individual_txts=write_individual,
             )
             failed = [r for r in res if r[1] is not None]
             if failed:

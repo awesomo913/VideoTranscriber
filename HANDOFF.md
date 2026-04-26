@@ -43,6 +43,10 @@ The user records 15–30 minute dev log videos and wants to feed the transcripts
 - **CLI:** `transcribe_batch()` + `collect_paths()`; single model load for the queue; `python transcribe_video.py` accepts multiple files, optional `--dir` / `--recursive`.
 - **GUI:** File(s)… (multi-select), Folder…, Clear; optional “Subfolders”; status shows `File i/n`.
 
+### 2026-04-26 — Single merged transcript (`--combined`)
+- **CLI:** `--combined` writes one UTF-8 file with all successful transcripts (headers per source). `--combined-only` skips per-source `.txt` files. `--combined-out FILE` overrides default `Desktop/merged_transcripts.txt`.
+- **`transcribe_batch`:** `combined_path=` and `write_individual_txts=`; shared `_lines_from_segments()`.
+
 ### 2026-04-25 (later) — Desktop default output
 - **Behavior:** `.txt` transcripts go to the user Desktop by default (not beside the source video). Optional `--out-dir` / `-o` on CLI; GUI uses `default_transcript_output_dir()` so it matches CLI.
 - **Collision-safe names:** If `{stem}.txt` already exists in the output folder, write `{stem}_{hash8}.txt` instead.
