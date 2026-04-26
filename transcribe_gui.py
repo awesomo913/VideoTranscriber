@@ -18,7 +18,8 @@ from tkinter import filedialog, messagebox
 sys.path.insert(0, str(Path(__file__).parent))
 from transcribe_video import (
     SUPPORTED_EXTENSIONS, MODEL_SIZES, DEFAULT_MODEL,
-    check_ffmpeg, collect_paths, transcribe, transcribe_batch,
+    check_ffmpeg, collect_paths, default_transcript_output_dir,
+    transcribe, transcribe_batch,
 )
 
 ctk.set_appearance_mode("dark")
@@ -64,8 +65,11 @@ class App(ctk.CTk):
                              font=("Segoe UI", 22, "bold"), text_color=ACCENT)
         title.grid(row=0, column=0, padx=20, pady=(18, 4), sticky="w")
 
-        sub = ctk.CTkLabel(self, text="Local offline transcription — no cloud, no API key",
-                           font=("Segoe UI", 11), text_color="#8899aa")
+        sub = ctk.CTkLabel(
+            self,
+            text="Local offline transcription — .txt saved to your Desktop by default",
+            font=("Segoe UI", 11), text_color="#8899aa",
+        )
         sub.grid(row=1, column=0, padx=20, pady=(0, 12), sticky="w")
 
         # ── File + options card ────────────────────────────────────────
@@ -283,6 +287,7 @@ class App(ctk.CTk):
                 f"File {i}/{total}: {p.name}",
             )
 
+        out_dir = default_transcript_output_dir()
         try:
             if len(paths) == 1:
                 out = transcribe(
@@ -290,6 +295,7 @@ class App(ctk.CTk):
                     model_name=self._model_var.get(),
                     timestamps=self._ts_var.get(),
                     on_segment=on_seg,
+                    output_dir=out_dir,
                 )
                 self.after(0, self._on_done, out, None)
             else:
@@ -299,6 +305,7 @@ class App(ctk.CTk):
                     timestamps=self._ts_var.get(),
                     on_segment=on_seg,
                     on_file=on_file,
+                    output_dir=out_dir,
                 )
                 self.after(0, self._on_batch_done, res)
         except Exception as exc:
@@ -359,7 +366,7 @@ class App(ctk.CTk):
         self._btn.configure(state="normal", text="Transcribe")
         self._copy_btn.configure(state="normal")
         self._open_btn.configure(state="normal")
-        self._set_status(f"Done — saved to {output_path.name}", color=SUCCESS)
+        self._set_status(f"Done — saved to {output_path}", color=SUCCESS)
         try:
             text = output_path.read_text(encoding="utf-8")
             self._set_preview(text)

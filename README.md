@@ -2,7 +2,7 @@
 
 Offline, free, local video and audio transcription using [faster-whisper](https://github.com/SYSTRAN/faster-whisper). No cloud APIs. No API keys. Works without internet after the first model download.
 
-Transcribes `.mp4`, `.mp3`, `.wav`, `.m4a`, `.webm`, `.ogg`, `.flac`, `.aac` into a `.txt` file saved next to the input. Designed for 15–30 minute development logs.
+Transcribes `.mp4`, `.mp3`, `.wav`, `.m4a`, `.webm`, `.ogg`, `.flac`, `.aac` into a `.txt` file. By default the transcript is saved on your **Desktop** (Windows: `%USERPROFILE%\Desktop`; other OS: `~/Desktop`). Use `--out-dir` / `-o` to pick another folder. If a file with the same name already exists there, a short hash suffix is added so batch jobs do not overwrite. Designed for 15–30 minute development logs.
 
 ---
 
@@ -23,6 +23,7 @@ python transcribe_gui.py
 # 3b. CLI — one file
 python transcribe_video.py devlog.mp4
 python transcribe_video.py devlog.mp4 --model base --no-timestamps
+python transcribe_video.py devlog.mp4 --out-dir D:\exports   # optional; default is Desktop
 
 # 3c. CLI — many files (one model load; stops with exit code 1 if any file fails)
 python transcribe_video.py a.mp4 b.wav meeting.m4a

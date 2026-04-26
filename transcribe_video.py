@@ -5,7 +5,8 @@ transcribe_video.py — Offline video/audio transcription using faster-whisper.
 Can be used as a CLI script OR imported as a module by transcribe_gui.py.
 
 Supported: .mp4 .mp3 .wav .m4a .webm .ogg .flac .aac .mpeg
-Output: <same-dir>/<same-stem>.txt with optional [HH:MM:SS] segment markers.
+Output: by default <Desktop>/<same-stem>.txt (see default_transcript_output_dir);
+        use --out-dir to override. Optional [HH:MM:SS] segment markers.
 
 Setup:
     winget install ffmpeg          (Windows) / brew install ffmpeg (Mac)
@@ -20,8 +21,10 @@ Usage:
 """
 
 import argparse
+import hashlib
 import json
 import logging
+import os
 import shutil
 import subprocess
 import sys
@@ -45,6 +48,33 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+def default_transcript_output_dir() -> Path:
+    """
+    Folder where .txt transcripts are written by default (Windows: Desktop).
+    Falls back to home if Desktop is missing.
+    """
+    if sys.platform == "win32":
+        base = Path(os.environ.get("USERPROFILE", str(Path.home())))
+        desktop = base / "Desktop"
+    else:
+        desktop = Path.home() / "Desktop"
+    if desktop.is_dir():
+        return desktop.resolve()
+    return Path.home().resolve()
+
+
+def _output_txt_path(input_path: Path, output_dir: Path) -> Path:
+    """Build a unique .txt path under output_dir (hash suffix if name collides)."""
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    stem = input_path.stem
+    candidate = output_dir / f"{stem}.txt"
+    if not candidate.exists():
+        return candidate
+    short = hashlib.sha1(str(input_path.resolve()).encode("utf-8")).hexdigest()[:8]
+    return output_dir / f"{stem}_{short}.txt"
+
 
 def format_timestamp(seconds: float) -> str:
     total = int(seconds)
@@ -110,7 +140,11 @@ def _run_transcribe_attempt(
 
 
 def _write_transcript_text(
-    input_path: Path, segments: list, info: object, timestamps: bool
+    input_path: Path,
+    segments: list,
+    info: object,
+    timestamps: bool,
+    output_dir: Optional[Path] = None,
 ) -> Path:
     lines = []
     for seg in segments:
@@ -119,7 +153,8 @@ def _write_transcript_text(
             continue
         prefix = f"{format_timestamp(seg.start)} " if timestamps else ""
         lines.append(f"{prefix}{text}")
-    output_path = input_path.with_suffix(".txt")
+    out_dir = output_dir if output_dir is not None else default_transcript_output_dir()
+    output_path = _output_txt_path(input_path, out_dir)
     output_path.write_text("\n".join(lines), encoding="utf-8")
     duration = str(timedelta(seconds=int(info.duration)))
     logger.info("Done — %d segments | %s | lang: %s", len(lines), duration, info.language)
@@ -185,9 +220,10 @@ def transcribe(
     model_name: str = DEFAULT_MODEL,
     timestamps: bool = True,
     on_segment: Optional[Callable[[int, str], None]] = None,
+    output_dir: Optional[Path] = None,
 ) -> Path:
     """
-    Transcribe *input_path* and write a .txt file in the same directory.
+    Transcribe *input_path* and write a .txt file (default: user's Desktop).
 
     Args:
         input_path:   Path to the media file.
@@ -195,6 +231,7 @@ def transcribe(
         timestamps:   Whether to prefix each segment with [HH:MM:SS].
         on_segment:   Optional callback(segment_count, segment_text_preview).
                       Called from whichever thread runs this function.
+        output_dir:   Folder for the .txt (default: default_transcript_output_dir()).
 
     Returns:
         Path to the written .txt file.
@@ -215,7 +252,9 @@ def transcribe(
     if segments is None:
         raise RuntimeError("Transcription failed on both GPU and CPU.")
 
-    return _write_transcript_text(input_path, segments, info, timestamps)
+    return _write_transcript_text(
+        input_path, segments, info, timestamps, output_dir=output_dir,
+    )
 
 
 def transcribe_batch(
@@ -224,6 +263,7 @@ def transcribe_batch(
     timestamps: bool = True,
     on_segment: Optional[Callable[[int, str], None]] = None,
     on_file: Optional[Callable[[int, int, Path], None]] = None,
+    output_dir: Optional[Path] = None,
 ) -> List[Tuple[Path, Optional[Exception]]]:
     """
     Transcribe many files using one model load when possible (CPU fallback
@@ -278,7 +318,9 @@ def transcribe_batch(
             continue
 
         try:
-            out = _write_transcript_text(input_path, segments, info, timestamps)
+            out = _write_transcript_text(
+                input_path, segments, info, timestamps, output_dir=output_dir,
+            )
             results.append((out, None))
         except Exception as exc:
             logger.exception("[%d/%d] %s", i, len(paths), input_path.name)
@@ -331,6 +373,12 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--no-timestamps", action="store_true",
                    help="Output plain prose without [HH:MM:SS] markers.")
+    p.add_argument(
+        "--out-dir", "-o",
+        type=Path,
+        metavar="FOLDER",
+        help="Write .txt transcripts here (default: your Desktop).",
+    )
     return p
 
 
@@ -358,12 +406,18 @@ def main() -> None:
         logger.error("No input files. Pass one or more files and/or use --dir FOLDER.")
         sys.exit(1)
 
+    out_dir = (
+        args.out_dir.resolve() if args.out_dir else default_transcript_output_dir()
+    )
+    logger.info("Transcript output folder: %s", out_dir)
+
     try:
         if len(paths) == 1:
             transcribe(
                 input_path=paths[0].resolve(),
                 model_name=args.model,
                 timestamps=not args.no_timestamps,
+                output_dir=out_dir,
             )
         else:
             res = transcribe_batch(
@@ -371,6 +425,7 @@ def main() -> None:
                 model_name=args.model,
                 timestamps=not args.no_timestamps,
                 on_file=lambda i, t, p: logger.info("— starting %d/%d: %s —", i, t, p.name),
+                output_dir=out_dir,
             )
             failed = [r for r in res if r[1] is not None]
             if failed:

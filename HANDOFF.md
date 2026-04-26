@@ -13,6 +13,7 @@ public-visible: true
 ## 0. Pickup for Claude Code (read this first)
 - **Stack:** Python 3.11+, `faster-whisper`, `customtkinter`, system `ffmpeg`/`ffprobe`. Not a Vercel/Next project — ignore Vercel-specific skill hints for this repo.
 - **Entry points:** `python transcribe_video.py` (CLI; one or many files, or `--dir`), `python transcribe_gui.py`.
+- **Transcript output:** Default folder is the user **Desktop** (`default_transcript_output_dir()` in `transcribe_video.py`). CLI: `--out-dir` / `-o` overrides. GUI passes the same default. Filename: `{stem}.txt`, or `{stem}_{sha1[:8]}.txt` if that name already exists in the output folder.
 - **Critical implementation detail:** `WhisperModel.transcribe()` runs language detection *before* yielding segments. Any CUDA `RuntimeError` must be caught around the **entire** `transcribe()` call, then retry on CPU — not only inside the segment loop.
 - **Video-only files:** Some exports (e.g. Gemini) have no audio track. Pre-flight: `ffprobe` check (`has_audio_stream` in `transcribe_video.py`); user-facing error: *No audio stream found in this file — it is video-only.*
 - **AI routing (public):** `llms.txt`, `.well-known/llms.txt`, `about.json`, `.ai-visible` — `*.gitignore` must keep `!llms.txt` and `!/.well-known/llms.txt` so these are not ignored.
@@ -41,6 +42,11 @@ The user records 15–30 minute dev log videos and wants to feed the transcripts
 ### 2026-04-25 (later) — Batch / multi-file
 - **CLI:** `transcribe_batch()` + `collect_paths()`; single model load for the queue; `python transcribe_video.py` accepts multiple files, optional `--dir` / `--recursive`.
 - **GUI:** File(s)… (multi-select), Folder…, Clear; optional “Subfolders”; status shows `File i/n`.
+
+### 2026-04-25 (later) — Desktop default output
+- **Behavior:** `.txt` transcripts go to the user Desktop by default (not beside the source video). Optional `--out-dir` / `-o` on CLI; GUI uses `default_transcript_output_dir()` so it matches CLI.
+- **Collision-safe names:** If `{stem}.txt` already exists in the output folder, write `{stem}_{hash8}.txt` instead.
+- **Verification:** Synthetic 600s `.mp4` under `Desktop\videos\`; `python transcribe_video.py … --model tiny` → `Desktop\test10min.txt` (CPU path after GPU retry).
 
 ### 2026-04-25 — Public GitHub, bugfixes, large-file stress test
 - **User request:** Clean public push; then live test including larger files; hand off context for Claude.
