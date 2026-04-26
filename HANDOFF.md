@@ -43,6 +43,10 @@ The user records 15–30 minute dev log videos and wants to feed the transcripts
 - **CLI:** `transcribe_batch()` + `collect_paths()`; single model load for the queue; `python transcribe_video.py` accepts multiple files, optional `--dir` / `--recursive`.
 - **GUI:** File(s)… (multi-select), Folder…, Clear; optional “Subfolders”; status shows `File i/n`.
 
+### 2026-04-26 (later) — Batch clarity + folder skips
+- **Behavior:** `transcribe_batch` runs files **sequentially** (one model in memory), not parallel — GUI explains this. **Folder…** only scans the chosen directory unless **Subfolders** is checked.
+- **Extensions:** Added `.mov`, `.mkv`, `.avi`. `collect_paths(..., folder_skipped_media=...)` lists folder files that look like media but are unsupported so the UI can warn instead of silently ignoring them.
+
 ### 2026-04-26 — Single merged transcript (`--combined`)
 - **CLI:** `--combined` writes one UTF-8 file with all successful transcripts (headers per source). `--combined-only` skips per-source `.txt` files. `--combined-out FILE` overrides default `Desktop/merged_transcripts.txt`.
 - **`transcribe_batch`:** `combined_path=` and `write_individual_txts=`; shared `_lines_from_segments()`.

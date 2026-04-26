@@ -41,8 +41,8 @@ class App(ctk.CTk):
     def __init__(self):
         super().__init__()
         self.title("VideoTranscriber")
-        self.geometry("680x580")
-        self.minsize(560, 480)
+        self.geometry("680x640")
+        self.minsize(560, 520)
         self.resizable(True, True)
 
         self._output_path: Path | None = None
@@ -101,13 +101,26 @@ class App(ctk.CTk):
         ctk.CTkCheckBox(
             card, text="Subfolders (when using Folder…)",
             variable=self._recursive_var, font=("Segoe UI", 11),
-        ).grid(row=1, column=1, columnspan=2, padx=4, pady=(0, 6), sticky="w")
+        ).grid(row=1, column=1, columnspan=2, padx=4, pady=(0, 4), sticky="w")
+
+        ctk.CTkLabel(
+            card,
+            text=(
+                "Batch: every queued file runs in one session, one after another "
+                "(single model in memory) — not parallel. "
+                "Folder… only adds this folder unless Subfolders is checked."
+            ),
+            font=("Segoe UI", 10),
+            text_color="#667788",
+            wraplength=500,
+            justify="left",
+        ).grid(row=2, column=1, columnspan=2, padx=4, pady=(0, 8), sticky="w")
 
         # Model row
         ctk.CTkLabel(card, text="Model:", font=FONT_BODY).grid(
-            row=2, column=0, padx=(14, 8), pady=6, sticky="w")
+            row=3, column=0, padx=(14, 8), pady=6, sticky="w")
         model_frame = ctk.CTkFrame(card, fg_color="transparent")
-        model_frame.grid(row=2, column=1, columnspan=2, padx=4, pady=6, sticky="w")
+        model_frame.grid(row=3, column=1, columnspan=2, padx=4, pady=6, sticky="w")
         self._model_var = ctk.StringVar(value=DEFAULT_MODEL)
         ctk.CTkComboBox(model_frame, values=list(MODEL_SIZES.keys()),
                         variable=self._model_var, width=130, font=FONT_BODY,
@@ -120,11 +133,11 @@ class App(ctk.CTk):
 
         # Timestamps row
         ctk.CTkLabel(card, text="Output:", font=FONT_BODY).grid(
-            row=3, column=0, padx=(14, 8), pady=(6, 14), sticky="w")
+            row=4, column=0, padx=(14, 8), pady=(6, 14), sticky="w")
         self._ts_var = ctk.BooleanVar(value=True)
         ctk.CTkCheckBox(card, text="Include [HH:MM:SS] timestamps",
                         variable=self._ts_var, font=FONT_BODY).grid(
-            row=3, column=1, padx=4, pady=(6, 14), sticky="w")
+            row=4, column=1, padx=4, pady=(6, 14), sticky="w")
 
         # ── Transcribe button ──────────────────────────────────────────
         self._btn = ctk.CTkButton(self, text="Transcribe", height=42,
@@ -185,13 +198,24 @@ class App(ctk.CTk):
 
     def _add_paths(self, new_paths: list[Path]) -> None:
         seen = {p.resolve() for p in self._paths}
+        skipped_names: list[str] = []
         for p in new_paths:
             if p.suffix.lower() not in SUPPORTED_EXTENSIONS:
+                skipped_names.append(p.name)
                 continue
             r = p.resolve()
             if r not in seen:
                 seen.add(r)
                 self._paths.append(p)
+        if skipped_names:
+            cap = 14
+            tail = "\n…" if len(skipped_names) > cap else ""
+            messagebox.showwarning(
+                "Unsupported file type",
+                "Skipped — extension not supported (not added to queue):\n\n"
+                + "\n".join(skipped_names[:cap])
+                + tail,
+            )
         self._refresh_queue_label()
         self._set_status("Ready." if self._paths else "No files in queue.")
 
@@ -226,22 +250,41 @@ class App(ctk.CTk):
         d = filedialog.askdirectory(title="Select folder with media files")
         if not d:
             return
+        skipped: list[Path] = []
         try:
             found = collect_paths(
                 [],
                 directory=Path(d),
                 recursive=self._recursive_var.get(),
+                folder_skipped_media=skipped,
             )
         except OSError as exc:
             messagebox.showerror("Folder", str(exc))
             return
         if not found:
+            hint = ""
+            if skipped:
+                exts = sorted({p.suffix.lower() for p in skipped if p.suffix})
+                ext_part = ", ".join(exts[:6]) if exts else "unknown"
+                hint = (
+                    f"\n\nFound {len(skipped)} other file(s) — extensions: {ext_part}"
+                    f"{' …' if len(exts) > 6 else ''}."
+                )
             messagebox.showinfo(
                 "Folder",
-                "No supported media files in that folder.",
+                "No supported media files in that folder." + hint,
             )
             return
         self._add_paths(found)
+        if skipped:
+            cap = 12
+            sample = "\n".join(p.name for p in skipped[:cap])
+            extra = f"\n… and {len(skipped) - cap} more" if len(skipped) > cap else ""
+            messagebox.showinfo(
+                "Folder — some files not queued",
+                f"Added {len(found)} file(s). These {len(skipped)} file(s) were not "
+                f"(unsupported extension for this app):\n\n{sample}{extra}",
+            )
 
     def _update_model_hint(self, *_):
         model = self._model_var.get()

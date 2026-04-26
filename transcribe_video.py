@@ -4,7 +4,7 @@ transcribe_video.py — Offline video/audio transcription using faster-whisper.
 
 Can be used as a CLI script OR imported as a module by transcribe_gui.py.
 
-Supported: .mp4 .mp3 .wav .m4a .webm .ogg .flac .aac .mpeg
+Supported: .mp4 .mp3 .wav .m4a .webm .ogg .flac .aac .mpeg .mov .mkv .avi
 Output: by default <Desktop>/<same-stem>.txt (see default_transcript_output_dir);
         use --out-dir to override. Optional [HH:MM:SS] segment markers.
 
@@ -32,7 +32,17 @@ from datetime import timedelta
 from pathlib import Path
 from typing import Callable, List, Optional, Tuple, Union
 
-SUPPORTED_EXTENSIONS = {".mp4", ".mp3", ".wav", ".m4a", ".webm", ".ogg", ".flac", ".aac", ".mpeg"}
+SUPPORTED_EXTENSIONS = {
+    ".mp4", ".mp3", ".wav", ".m4a", ".webm", ".ogg", ".flac", ".aac", ".mpeg",
+    ".mov", ".mkv", ".avi",
+}
+
+# When scanning a folder, do not noise-report these extensions as "skipped media"
+_SKIP_REPORT_SUFFIXES = {
+    ".txt", ".md", ".json", ".xml", ".srt", ".vtt", ".csv", ".pdf", ".url", ".ini",
+    ".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".ico", ".svg",
+    ".zip", ".rar", ".7z", ".exe", ".dll", ".lnk",
+}
 DEFAULT_MODEL = "small"
 MODEL_SIZES = {"tiny": "75 MB", "base": "145 MB", "small": "480 MB",
                "medium": "1.5 GB", "large-v3": "3 GB"}
@@ -196,10 +206,16 @@ def collect_paths(
     files: List[Path],
     directory: Optional[Path] = None,
     recursive: bool = False,
+    folder_skipped_media: Optional[List[Path]] = None,
 ) -> List[Path]:
     """
     Build a sorted, de-duplicated list of media paths from explicit files
     and/or an optional directory scan.
+
+    If *folder_skipped_media* is a list, append paths under *directory* that look
+    like files (have an extension) but are not in SUPPORTED_EXTENSIONS, excluding
+    common non-media types (``_SKIP_REPORT_SUFFIXES``). Callers can show these in
+    the UI so users know why a video did not enter the queue.
     """
     out: List[Path] = []
     seen: set = set()
@@ -209,11 +225,20 @@ def collect_paths(
             raise NotADirectoryError(f"Not a directory: {directory}")
         pattern = "**/*" if recursive else "*"
         for p in sorted(d.glob(pattern)):
-            if p.is_file() and p.suffix.lower() in SUPPORTED_EXTENSIONS:
+            if not p.is_file():
+                continue
+            suf = p.suffix.lower()
+            if suf in SUPPORTED_EXTENSIONS:
                 r = p.resolve()
                 if r not in seen:
                     seen.add(r)
                     out.append(p)
+            elif (
+                folder_skipped_media is not None
+                and suf
+                and suf not in _SKIP_REPORT_SUFFIXES
+            ):
+                folder_skipped_media.append(p)
     for f in files:
         p = Path(f)
         r = p.resolve()
