@@ -9,12 +9,12 @@ import os
 import subprocess
 import sys
 import threading
+import time
 from pathlib import Path
 
 import customtkinter as ctk
 from tkinter import filedialog, messagebox
 
-# Allow running from the project folder or as a PyInstaller bundle
 sys.path.insert(0, str(Path(__file__).parent))
 from transcribe_video import (
     SUPPORTED_EXTENSIONS, MODEL_SIZES, DEFAULT_MODEL,
@@ -36,18 +36,29 @@ FONT_MONO = ("Consolas", 12)
 FILTER_EXTS = [("Media files", " ".join(f"*{e}" for e in sorted(SUPPORTED_EXTENSIONS))),
                ("All files", "*.*")]
 
+_MODEL_NOTES = {
+    "tiny":     "real-time speed, lower accuracy",
+    "base":     "very fast, decent accuracy",
+    "small":    "fast, good accuracy (recommended)",
+    "medium":   "high accuracy, ~2× real-time",
+    "large-v3": "best quality, slower",
+}
+
 
 class App(ctk.CTk):
     def __init__(self):
         super().__init__()
         self.title("VideoTranscriber")
-        self.geometry("680x640")
-        self.minsize(560, 520)
+        self.geometry("700x680")
+        self.minsize(560, 560)
         self.resizable(True, True)
 
         self._output_path: Path | None = None
         self._paths: list[Path] = []
         self._running = False
+        self._start_time = 0.0
+        self._batch_file_idx = 0
+        self._batch_total = 0
 
         self._build_ui()
         self._check_deps_on_start()
@@ -58,7 +69,7 @@ class App(ctk.CTk):
 
     def _build_ui(self):
         self.grid_columnconfigure(0, weight=1)
-        self.grid_rowconfigure(4, weight=1)
+        self.grid_rowconfigure(5, weight=1)
 
         # ── Title bar ──────────────────────────────────────────────────
         title = ctk.CTkLabel(self, text="VideoTranscriber",
@@ -67,7 +78,7 @@ class App(ctk.CTk):
 
         sub = ctk.CTkLabel(
             self,
-            text="Local offline transcription — .txt saved to your Desktop by default",
+            text="Local offline transcription — powered by faster-whisper",
             font=("Segoe UI", 11), text_color="#8899aa",
         )
         sub.grid(row=1, column=0, padx=20, pady=(0, 12), sticky="w")
@@ -84,7 +95,7 @@ class App(ctk.CTk):
         self._file_label = ctk.CTkLabel(
             card, textvariable=self._file_var,
             font=FONT_MONO, anchor="w", justify="left",
-            text_color="#aabbcc", wraplength=400,
+            text_color="#aabbcc", wraplength=380,
         )
         self._file_label.grid(row=0, column=1, padx=4, pady=(14, 6), sticky="ew")
         btn_frame = ctk.CTkFrame(card, fg_color="transparent")
@@ -96,31 +107,17 @@ class App(ctk.CTk):
         ctk.CTkButton(btn_frame, text="Clear", width=80, font=FONT_BODY,
                       command=self._clear_queue, fg_color="#444", hover_color="#555").pack(pady=2)
 
-        # Subfolder option (for folder add)
         self._recursive_var = ctk.BooleanVar(value=False)
         ctk.CTkCheckBox(
-            card, text="Subfolders (when using Folder…)",
+            card, text="Include subfolders (when using Folder…)",
             variable=self._recursive_var, font=("Segoe UI", 11),
         ).grid(row=1, column=1, columnspan=2, padx=4, pady=(0, 4), sticky="w")
 
-        ctk.CTkLabel(
-            card,
-            text=(
-                "Batch: every queued file runs in one session, one after another "
-                "(single model in memory) — not parallel. "
-                "Folder… only adds this folder unless Subfolders is checked."
-            ),
-            font=("Segoe UI", 10),
-            text_color="#667788",
-            wraplength=500,
-            justify="left",
-        ).grid(row=2, column=1, columnspan=2, padx=4, pady=(0, 8), sticky="w")
-
         # Model row
         ctk.CTkLabel(card, text="Model:", font=FONT_BODY).grid(
-            row=3, column=0, padx=(14, 8), pady=6, sticky="w")
+            row=2, column=0, padx=(14, 8), pady=6, sticky="w")
         model_frame = ctk.CTkFrame(card, fg_color="transparent")
-        model_frame.grid(row=3, column=1, columnspan=2, padx=4, pady=6, sticky="w")
+        model_frame.grid(row=2, column=1, columnspan=2, padx=4, pady=6, sticky="w")
         self._model_var = ctk.StringVar(value=DEFAULT_MODEL)
         ctk.CTkComboBox(model_frame, values=list(MODEL_SIZES.keys()),
                         variable=self._model_var, width=130, font=FONT_BODY,
@@ -130,6 +127,20 @@ class App(ctk.CTk):
         self._model_hint.pack(side="left", padx=(10, 0))
         self._model_var.trace_add("write", self._update_model_hint)
         self._update_model_hint()
+
+        # Output dir row
+        ctk.CTkLabel(card, text="Save to:", font=FONT_BODY).grid(
+            row=3, column=0, padx=(14, 8), pady=6, sticky="w")
+        out_row = ctk.CTkFrame(card, fg_color="transparent")
+        out_row.grid(row=3, column=1, columnspan=2, padx=4, pady=6, sticky="ew")
+        out_row.grid_columnconfigure(0, weight=1)
+        self._out_dir_var = ctk.StringVar(value=str(default_transcript_output_dir()))
+        ctk.CTkLabel(out_row, textvariable=self._out_dir_var,
+                     font=("Segoe UI", 11), anchor="w", text_color="#aabbcc",
+                     wraplength=320).grid(row=0, column=0, sticky="ew")
+        ctk.CTkButton(out_row, text="Change…", width=80, font=("Segoe UI", 11),
+                      height=28, command=self._browse_out_dir).grid(
+            row=0, column=1, padx=(8, 14))
 
         # Timestamps row
         ctk.CTkLabel(card, text="Output:", font=FONT_BODY).grid(
@@ -147,14 +158,28 @@ class App(ctk.CTk):
 
         # ── Status + progress ──────────────────────────────────────────
         status_row = ctk.CTkFrame(self, fg_color="transparent")
-        status_row.grid(row=4, column=0, padx=16, pady=(0, 4), sticky="ew")
+        status_row.grid(row=4, column=0, padx=16, pady=(0, 2), sticky="ew")
         status_row.grid_columnconfigure(0, weight=1)
+
         self._status_var = ctk.StringVar(value="Ready.")
-        ctk.CTkLabel(status_row, textvariable=self._status_var,
-                     font=("Segoe UI", 12), anchor="w").grid(
-            row=0, column=0, sticky="ew")
-        self._progress = ctk.CTkProgressBar(self, mode="indeterminate")
-        self._progress.grid(row=5, column=0, padx=16, pady=(0, 8), sticky="ew")
+        self._status_label = ctk.CTkLabel(
+            status_row, textvariable=self._status_var,
+            font=("Segoe UI", 12), anchor="w",
+        )
+        self._status_label.grid(row=0, column=0, sticky="ew")
+
+        self._elapsed_var = ctk.StringVar(value="")
+        ctk.CTkLabel(status_row, textvariable=self._elapsed_var,
+                     font=("Segoe UI", 11), text_color="#8899aa").grid(
+            row=0, column=1, padx=(8, 4))
+
+        self._eta_var = ctk.StringVar(value="")
+        ctk.CTkLabel(status_row, textvariable=self._eta_var,
+                     font=("Segoe UI", 11), text_color=ACCENT).grid(
+            row=0, column=2, padx=(0, 0))
+
+        self._progress = ctk.CTkProgressBar(self, mode="determinate")
+        self._progress.grid(row=5, column=0, padx=16, pady=(2, 8), sticky="ew")
         self._progress.set(0)
 
         # ── Output preview ─────────────────────────────────────────────
@@ -172,7 +197,7 @@ class App(ctk.CTk):
                                        command=self._open_folder, state="disabled")
         self._open_btn.grid(row=0, column=2, padx=(4, 0), sticky="e")
 
-        self._preview = ctk.CTkTextbox(self, font=FONT_MONO, height=140,
+        self._preview = ctk.CTkTextbox(self, font=FONT_MONO, height=160,
                                        state="disabled", wrap="word",
                                        text_color="#ccddee")
         self._preview.grid(row=7, column=0, padx=16, pady=(4, 16), sticky="nsew")
@@ -186,6 +211,7 @@ class App(ctk.CTk):
         if not check_ffmpeg():
             self._set_status("⚠ ffmpeg not found — see TUTORIAL.md for install instructions.",
                              color=WARNING)
+            return
         try:
             import faster_whisper  # noqa: F401
         except ImportError:
@@ -212,9 +238,8 @@ class App(ctk.CTk):
             tail = "\n…" if len(skipped_names) > cap else ""
             messagebox.showwarning(
                 "Unsupported file type",
-                "Skipped — extension not supported (not added to queue):\n\n"
-                + "\n".join(skipped_names[:cap])
-                + tail,
+                "Skipped — extension not supported:\n\n"
+                + "\n".join(skipped_names[:cap]) + tail,
             )
         self._refresh_queue_label()
         self._set_status("Ready." if self._paths else "No files in queue.")
@@ -226,7 +251,6 @@ class App(ctk.CTk):
         if len(self._paths) == 1:
             self._file_var.set(str(self._paths[0]))
             return
-        # Multi — show first two + count
         lines = [str(p) for p in self._paths[:2]]
         rest = len(self._paths) - 2
         if rest > 0:
@@ -266,14 +290,9 @@ class App(ctk.CTk):
             if skipped:
                 exts = sorted({p.suffix.lower() for p in skipped if p.suffix})
                 ext_part = ", ".join(exts[:6]) if exts else "unknown"
-                hint = (
-                    f"\n\nFound {len(skipped)} other file(s) — extensions: {ext_part}"
-                    f"{' …' if len(exts) > 6 else ''}."
-                )
-            messagebox.showinfo(
-                "Folder",
-                "No supported media files in that folder." + hint,
-            )
+                hint = (f"\n\nFound {len(skipped)} other file(s) — extensions: {ext_part}"
+                        f"{' …' if len(exts) > 6 else ''}.")
+            messagebox.showinfo("Folder", "No supported media files in that folder." + hint)
             return
         self._add_paths(found)
         if skipped:
@@ -283,20 +302,20 @@ class App(ctk.CTk):
             messagebox.showinfo(
                 "Folder — some files not queued",
                 f"Added {len(found)} file(s). These {len(skipped)} file(s) were not "
-                f"(unsupported extension for this app):\n\n{sample}{extra}",
+                f"(unsupported extension):\n\n{sample}{extra}",
             )
+
+    def _browse_out_dir(self) -> None:
+        d = filedialog.askdirectory(title="Select output folder for transcripts")
+        if d:
+            self._out_dir_var.set(d)
 
     def _update_model_hint(self, *_):
         model = self._model_var.get()
         size = MODEL_SIZES.get(model, "")
-        notes = {
-            "tiny":   "fastest, lower accuracy",
-            "base":   "fast, decent accuracy",
-            "small":  "recommended for dev logs",
-            "medium": "high accuracy, slower",
-            "large-v3": "best quality, slow",
-        }
-        self._model_hint.configure(text=f"~{size} — {notes.get(model, '')}")
+        self._model_hint.configure(
+            text=f"~{size} — {_MODEL_NOTES.get(model, '')}"
+        )
 
     def _start_transcribe(self):
         if self._running:
@@ -309,28 +328,56 @@ class App(ctk.CTk):
             return
         self._running = True
         self._output_path = None
+        self._batch_file_idx = 0
+        self._batch_total = 0
         self._btn.configure(state="disabled", text="Transcribing…")
         self._copy_btn.configure(state="disabled")
         self._open_btn.configure(state="disabled")
         self._set_preview("")
-        self._progress.start()
-        self._set_status("Starting…")
+        self._progress.configure(mode="determinate")
+        self._progress.set(0)
+        self._set_status("Loading model…")
+        self._start_time = time.monotonic()
+        self._tick()
         paths = [p.resolve() for p in self._paths]
+        out_dir = Path(self._out_dir_var.get())
         threading.Thread(
-            target=self._run_transcribe, args=(paths,), daemon=True
+            target=self._run_transcribe, args=(paths, out_dir), daemon=True
         ).start()
 
-    def _run_transcribe(self, paths: list[Path]) -> None:
+    def _tick(self) -> None:
+        if not self._running:
+            return
+        elapsed = time.monotonic() - self._start_time
+        m, s = divmod(int(elapsed), 60)
+        self._elapsed_var.set(f"⏱ {m:02d}:{s:02d}")
+        self.after(1000, self._tick)
+
+    def _run_transcribe(self, paths: list[Path], out_dir: Path) -> None:
+        _last_seg = [0.0]
+        _last_prog = [0.0]
+
         def on_seg(count: int, text: str) -> None:
-            self.after(0, self._set_status, f"Segment {count}: {text[:50]}…")
+            now = time.monotonic()
+            if now - _last_seg[0] < 0.35:
+                return
+            _last_seg[0] = now
+            self.after(0, self._set_status, f"Segment {count}: {text[:55]}…")
 
         def on_file(i: int, total: int, p: Path) -> None:
-            self.after(
-                0, self._set_status,
-                f"File {i}/{total}: {p.name}",
-            )
+            def _update():
+                self._batch_file_idx = i - 1
+                self._batch_total = total
+                self._set_status(f"File {i}/{total}: {p.name}")
+            self.after(0, _update)
 
-        out_dir = default_transcript_output_dir()
+        def on_progress(current_sec: float, total_sec: float) -> None:
+            now = time.monotonic()
+            if now - _last_prog[0] < 0.25:
+                return
+            _last_prog[0] = now
+            self.after(0, self._on_progress_update, current_sec, total_sec)
+
         try:
             if len(paths) == 1:
                 out = transcribe(
@@ -339,8 +386,9 @@ class App(ctk.CTk):
                     timestamps=self._ts_var.get(),
                     on_segment=on_seg,
                     output_dir=out_dir,
+                    on_progress=on_progress,
                 )
-                self.after(0, self._on_done, out, None)
+                self.after(0, self._on_done, out)
             else:
                 res = transcribe_batch(
                     paths=paths,
@@ -349,27 +397,37 @@ class App(ctk.CTk):
                     on_segment=on_seg,
                     on_file=on_file,
                     output_dir=out_dir,
+                    on_progress=on_progress,
                 )
                 self.after(0, self._on_batch_done, res)
         except Exception as exc:
             self.after(0, self._on_error, str(exc))
 
-    def _on_batch_done(
-        self, res: list[tuple[Path, Exception | None]]
-    ) -> None:
+    def _on_progress_update(self, current_sec: float, total_sec: float) -> None:
+        if not self._running or total_sec <= 0:
+            return
+        file_fraction = min(current_sec / total_sec, 1.0)
+        if self._batch_total > 0:
+            overall = (self._batch_file_idx + file_fraction) / self._batch_total
+        else:
+            overall = file_fraction
+        self._progress.set(min(overall, 1.0))
+        elapsed = time.monotonic() - self._start_time
+        if overall > 0.02 and elapsed > 1.0:
+            eta_secs = max(elapsed / overall - elapsed, 0)
+            m, s = divmod(int(eta_secs), 60)
+            self._eta_var.set(f"ETA {m:02d}:{s:02d}")
+
+    def _on_batch_done(self, res: list[tuple[Path, Exception | None]]) -> None:
         failed = [(p, e) for p, e in res if e is not None]
         ok = [p for p, e in res if e is None]
-        self._running = False
-        self._progress.stop()
-        self._progress.set(1)
-        self._btn.configure(state="normal", text="Transcribe")
+        self._finish()
         if not ok and failed:
             self._on_error("; ".join(f"{p.name}: {e}" for p, e in failed))
             return
         if failed:
             self._set_status(
-                f"Done with errors: {len(ok)} ok, {len(failed)} failed. "
-                f"Check messages.",
+                f"Done with errors: {len(ok)} ok, {len(failed)} failed.",
                 color=WARNING,
             )
             messagebox.showwarning(
@@ -378,11 +436,7 @@ class App(ctk.CTk):
                 + "\n".join(f"• {p.name}: {e}" for p, e in failed[:8]),
             )
         else:
-            self._set_status(
-                f"All {len(ok)} file(s) transcribed.",
-                color=SUCCESS,
-            )
-        # Preview last successful .txt
+            self._set_status(f"All {len(ok)} file(s) transcribed.", color=SUCCESS)
         last_txt = next((p for p in reversed(ok) if p.suffix == ".txt"), None)
         if last_txt and last_txt.exists():
             self._output_path = last_txt
@@ -395,33 +449,29 @@ class App(ctk.CTk):
         else:
             self._copy_btn.configure(state="normal")
             self._open_btn.configure(state="normal")
-            self._set_preview(
-                "\n\n".join(f"✓ {p.name}" for p in ok) if ok else ""
-            )
+            self._set_preview("\n\n".join(f"✓ {p.name}" for p in ok) if ok else "")
 
-    def _on_done(
-        self, output_path: Path, _unused: None = None
-    ) -> None:
-        self._running = False
+    def _on_done(self, output_path: Path) -> None:
         self._output_path = output_path
-        self._progress.stop()
-        self._progress.set(1)
-        self._btn.configure(state="normal", text="Transcribe")
+        self._finish()
         self._copy_btn.configure(state="normal")
         self._open_btn.configure(state="normal")
         self._set_status(f"Done — saved to {output_path}", color=SUCCESS)
         try:
-            text = output_path.read_text(encoding="utf-8")
-            self._set_preview(text)
+            self._set_preview(output_path.read_text(encoding="utf-8"))
         except OSError:
             pass
 
-    def _on_error(self, msg: str):
-        self._running = False
-        self._progress.stop()
-        self._progress.set(0)
-        self._btn.configure(state="normal", text="Transcribe")
+    def _on_error(self, msg: str) -> None:
+        self._finish(success=False)
         self._set_status(f"Error: {msg}", color=ERROR)
+
+    def _finish(self, success: bool = True) -> None:
+        self._running = False
+        self._elapsed_var.set("")
+        self._eta_var.set("")
+        self._progress.set(1.0 if success else 0.0)
+        self._btn.configure(state="normal", text="Transcribe")
 
     def _copy_output(self):
         if self._output_path and self._output_path.exists():
@@ -446,13 +496,7 @@ class App(ctk.CTk):
 
     def _set_status(self, text: str, color: str = "#aabbcc"):
         self._status_var.set(text)
-        # Find the status label widget and update its color
-        for child in self.winfo_children():
-            if isinstance(child, ctk.CTkFrame):
-                for w in child.winfo_children():
-                    if isinstance(w, ctk.CTkLabel) and w.cget("textvariable") == str(self._status_var):
-                        w.configure(text_color=color)
-                        return
+        self._status_label.configure(text_color=color)
 
     def _set_preview(self, text: str):
         self._preview.configure(state="normal")

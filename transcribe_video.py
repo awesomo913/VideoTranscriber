@@ -132,15 +132,23 @@ def _run_transcribe_attempt(
     model: object,
     input_path: Path,
     on_segment: Optional[Callable[[int, str], None]],
+    on_progress: Optional[Callable[[float, float], None]] = None,
 ) -> Union[Tuple[list, object], Tuple[None, None]]:
     """Return (segments, info) or (None, None) if CUDA failed and CPU should be tried."""
     try:
-        segs, inf = model.transcribe(str(input_path), beam_size=5)
+        segs, inf = model.transcribe(
+            str(input_path),
+            beam_size=1,
+            vad_filter=True,
+            condition_on_previous_text=False,
+        )
         collected = []
         for seg in segs:
             collected.append(seg)
             if on_segment:
                 on_segment(len(collected), seg.text.strip()[:60])
+            if on_progress and inf.duration > 0:
+                on_progress(seg.end, inf.duration)
     except RuntimeError as exc:
         keywords = ("cublas", "cuda", "cufft", "dll", "library")
         if any(k in str(exc).lower() for k in keywords):
@@ -254,6 +262,7 @@ def transcribe(
     timestamps: bool = True,
     on_segment: Optional[Callable[[int, str], None]] = None,
     output_dir: Optional[Path] = None,
+    on_progress: Optional[Callable[[float, float], None]] = None,
 ) -> Path:
     """
     Transcribe *input_path* and write a .txt file (default: user's Desktop).
@@ -277,11 +286,11 @@ def transcribe(
     model = _load_whisper(model_name, "auto", "auto")
     logger.info("Transcribing: %s", input_path.name)
 
-    segments, info = _run_transcribe_attempt(model, input_path, on_segment)
+    segments, info = _run_transcribe_attempt(model, input_path, on_segment, on_progress)
     if segments is None:
         logger.warning("GPU path failed — retrying on CPU.")
         model = _load_whisper(model_name, "cpu", "int8")
-        segments, info = _run_transcribe_attempt(model, input_path, on_segment)
+        segments, info = _run_transcribe_attempt(model, input_path, on_segment, on_progress)
     if segments is None:
         raise RuntimeError("Transcription failed on both GPU and CPU.")
 
@@ -299,6 +308,7 @@ def transcribe_batch(
     output_dir: Optional[Path] = None,
     combined_path: Optional[Path] = None,
     write_individual_txts: bool = True,
+    on_progress: Optional[Callable[[float, float], None]] = None,
 ) -> List[Tuple[Path, Optional[Exception]]]:
     """
     Transcribe many files using one model load when possible (CPU fallback
@@ -356,12 +366,12 @@ def transcribe_batch(
 
         logger.info("Transcribing [%d/%d]: %s", i, len(paths), input_path.name)
 
-        segments, info = _run_transcribe_attempt(model, input_path, on_segment)
+        segments, info = _run_transcribe_attempt(model, input_path, on_segment, on_progress)
         if segments is None and not using_cpu:
             logger.warning("GPU path failed — switching to CPU for remaining files.")
             model = _load_whisper(model_name, "cpu", "int8")
             using_cpu = True
-            segments, info = _run_transcribe_attempt(model, input_path, on_segment)
+            segments, info = _run_transcribe_attempt(model, input_path, on_segment, on_progress)
 
         if segments is None:
             err = RuntimeError("Transcription failed on both GPU and CPU.")
