@@ -19,7 +19,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from transcribe_video import (
     SUPPORTED_EXTENSIONS, MODEL_SIZES, DEFAULT_MODEL,
     check_ffmpeg, collect_paths, default_transcript_output_dir,
-    transcribe, transcribe_batch,
+    supported_formats_text, transcribe, transcribe_batch,
 )
 
 ctk.set_appearance_mode("dark")
@@ -239,7 +239,9 @@ class App(ctk.CTk):
             messagebox.showwarning(
                 "Unsupported file type",
                 "Skipped — extension not supported:\n\n"
-                + "\n".join(skipped_names[:cap]) + tail,
+                + "\n".join(skipped_names[:cap]) + tail
+                + "\n\nSupported formats:\n"
+                + supported_formats_text(),
             )
         self._refresh_queue_label()
         self._set_status("Ready." if self._paths else "No files in queue.")
@@ -465,6 +467,7 @@ class App(ctk.CTk):
     def _on_error(self, msg: str) -> None:
         self._finish(success=False)
         self._set_status(f"Error: {msg}", color=ERROR)
+        messagebox.showerror("Transcription error", msg)
 
     def _finish(self, success: bool = True) -> None:
         self._running = False

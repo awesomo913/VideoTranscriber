@@ -24,6 +24,7 @@ import argparse
 import hashlib
 import json
 import logging
+import mimetypes
 import os
 import shutil
 import subprocess
@@ -36,6 +37,7 @@ SUPPORTED_EXTENSIONS = {
     ".mp4", ".mp3", ".wav", ".m4a", ".webm", ".ogg", ".flac", ".aac", ".mpeg",
     ".mov", ".mkv", ".avi",
 }
+SUPPORTED_MIME_PREFIXES = ("audio/", "video/")
 
 # When scanning a folder, do not noise-report these extensions as "skipped media"
 _SKIP_REPORT_SUFFIXES = {
@@ -97,6 +99,17 @@ def check_ffmpeg() -> bool:
     return shutil.which("ffmpeg") is not None
 
 
+def supported_formats_text() -> str:
+    return ", ".join(sorted(SUPPORTED_EXTENSIONS))
+
+
+def _is_supported_media_type(input_path: Path) -> bool:
+    if input_path.suffix.lower() in SUPPORTED_EXTENSIONS:
+        return True
+    guessed, _ = mimetypes.guess_type(str(input_path))
+    return bool(guessed and guessed.startswith(SUPPORTED_MIME_PREFIXES))
+
+
 def has_audio_stream(file_path: Path) -> bool:
     """Return True if the file contains at least one audio stream."""
     try:
@@ -120,12 +133,20 @@ def _whisper_model_class():
         from faster_whisper import WhisperModel
         return WhisperModel
     except ImportError:
-        raise ImportError("Run: uv pip install faster-whisper")
+        raise ImportError(
+            "faster-whisper is not installed. Install it with: uv pip install faster-whisper"
+        )
 
 
 def _load_whisper(model_name: str, device: str, compute: str):
     WM = _whisper_model_class()
-    return WM(model_name, device=device, compute_type=compute)
+    try:
+        return WM(model_name, device=device, compute_type=compute)
+    except Exception as exc:
+        raise RuntimeError(
+            f"Could not load model '{model_name}'. "
+            "Make sure the model files are available (first run requires internet)."
+        ) from exc
 
 
 def _run_transcribe_attempt(
@@ -189,13 +210,19 @@ def _write_transcript_text(
 
 
 def _validate_media_path(input_path: Path) -> None:
-    if input_path.suffix.lower() not in SUPPORTED_EXTENSIONS:
-        raise ValueError(
-            f"Unsupported format: {input_path.suffix!r}. "
-            f"Supported: {', '.join(sorted(SUPPORTED_EXTENSIONS))}"
-        )
     if not input_path.exists():
         raise FileNotFoundError(f"File not found: {input_path}")
+    if not input_path.is_file():
+        raise ValueError(f"Not a file: {input_path}")
+    if not os.access(input_path, os.R_OK):
+        raise PermissionError(f"File is not readable: {input_path}")
+    if input_path.stat().st_size == 0:
+        raise ValueError(f"File is empty: {input_path}")
+    if not _is_supported_media_type(input_path):
+        raise ValueError(
+            f"Unsupported format: {input_path.suffix!r}. "
+            f"Supported formats: {supported_formats_text()}"
+        )
     if not check_ffmpeg():
         raise EnvironmentError(
             "ffmpeg not found. Install it:\n"
@@ -554,7 +581,7 @@ def main() -> None:
                 for target, err in failed:
                     logger.error("Failed: %s — %s", target, err)
                 sys.exit(1)
-    except (ValueError, FileNotFoundError, EnvironmentError, ImportError) as exc:
+    except (ValueError, FileNotFoundError, PermissionError, EnvironmentError, ImportError, RuntimeError) as exc:
         logger.error("%s", exc)
         sys.exit(1)
     except Exception as exc:
