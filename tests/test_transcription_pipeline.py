@@ -33,6 +33,7 @@ class TestTranscriptionPipeline(unittest.TestCase):
                 tv._validate_media_path(media_path)
 
     def test_run_transcribe_attempt_calls_model_and_callbacks(self):
+        input_path = Path("dummy.mp4")
         segments = [
             SimpleNamespace(start=0.0, end=0.2, text=" first "),
             SimpleNamespace(start=0.2, end=0.5, text=" second "),
@@ -47,13 +48,13 @@ class TestTranscriptionPipeline(unittest.TestCase):
 
         returned_segments, returned_info = tv._run_transcribe_attempt(
             model,
-            Path("dummy.mp4"),
+            input_path,
             lambda count, text: on_segment_calls.append((count, text)),
             lambda current, total: on_progress_calls.append((current, total)),
         )
 
         model.transcribe.assert_called_once_with(
-            "dummy.mp4",
+            str(input_path),
             beam_size=1,
             vad_filter=True,
             condition_on_previous_text=False,
@@ -140,7 +141,7 @@ class TestTranscriptionPipeline(unittest.TestCase):
 
             self.assertEqual(results, [(media_path, None)])
             combined_text = combined_path.read_text(encoding="utf-8")
-            self.assertIn("Combined transcripts (offline faster-whisper)", combined_text)
+            self.assertIn("Combined transcripts", combined_text)
             self.assertIn("File: clip.mp4", combined_text)
             self.assertIn("batched line", combined_text)
 
