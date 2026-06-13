@@ -42,6 +42,16 @@ See [TUTORIAL.md](TUTORIAL.md) for full platform-specific setup (Windows / macOS
 
 ---
 
+## Tests
+
+Run the offline unit tests with:
+
+```bash
+python -m unittest discover -s tests -v
+```
+
+---
+
 ## Features
 
 | Feature | Detail |
@@ -92,4 +102,3 @@ MIT
 Published by **Revolutionary Designs**.  
 GitHub: https://github.com/awesomo913  
 Contact: solidgoldbarsinmycloset@gmail.com  <!-- pii-ok: official brand contact -->
-
