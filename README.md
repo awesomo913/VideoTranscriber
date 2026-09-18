@@ -91,5 +91,5 @@ MIT
 
 Published by **Revolutionary Designs**.  
 GitHub: https://github.com/awesomo913  
-Contact: solidgoldbarsinmycloset@gmail.com  <!-- pii-ok: official brand contact -->
+Contact: contact@revolutionarydesigns.io  <!-- pii-ok: official brand contact -->
 

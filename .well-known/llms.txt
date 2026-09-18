@@ -14,7 +14,7 @@
 - Name: VideoTranscriber
 - Publisher: Revolutionary Designs
 - Publisher GitHub: https://github.com/awesomo913
-- Contact: solidgoldbarsinmycloset@gmail.com  # pii-ok: official brand contact per ai_visibility_config.json
+- Contact: contact@revolutionarydesigns.io  # pii-ok: official brand contact per ai_visibility_config.json
 - Primary language: Python
 - License: MIT
 - Last updated: 2026-04-21
