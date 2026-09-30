@@ -1,0 +1,68 @@
+<svg viewBox="0 0 1280 400" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="VideoTranscriber — Turn video and audio into text, 100% offline.">
+  <defs>
+    <linearGradient id="accent" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#2ec4b6"/>
+      <stop offset="100%" stop-color="#4d96ff"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#4d96ff" stop-opacity="0.22"/>
+      <stop offset="100%" stop-color="#4d96ff" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <rect width="1280" height="400" fill="#14141f"/>
+  <ellipse cx="980" cy="200" rx="360" ry="220" fill="url(#glow)"/>
+
+  <!-- faint wave texture -->
+  <path d="M 0 70 C 220 30, 420 110, 640 70 C 860 30, 1060 110, 1280 70" stroke="url(#accent)" stroke-width="1.5" fill="none" opacity="0.15"/>
+  <path d="M 0 340 C 220 380, 420 300, 640 340 C 860 380, 1060 300, 1280 340" stroke="url(#accent)" stroke-width="1.5" fill="none" opacity="0.15"/>
+
+  <!-- app tile: play glyph turning into text lines -->
+  <g transform="translate(90,104)">
+    <rect width="104" height="104" rx="26" fill="url(#accent)"/>
+    <path d="M 30 26 L 30 78 L 70 52 Z" fill="#ffffff"/>
+    <line x1="30" y1="88" x2="78" y2="88" stroke="#ffffff" stroke-width="6" stroke-linecap="round" opacity="0.9"/>
+  </g>
+
+  <!-- title + tagline -->
+  <g font-family="Segoe UI, system-ui, sans-serif">
+    <text x="90" y="255" font-size="52" font-weight="700" fill="#f5f7fa">VideoTranscriber</text>
+    <text x="92" y="290" font-size="22" fill="#a9b4c4">Turn video and audio into text — 100% offline.</text>
+  </g>
+
+  <!-- chips -->
+  <g font-family="Segoe UI, system-ui, sans-serif" font-size="15" font-weight="600" fill="#14141f" text-anchor="middle">
+    <rect x="90" y="314" width="124" height="32" rx="16" fill="url(#accent)"/>
+    <text x="152" y="335">100% local</text>
+    <rect x="224" y="314" width="112" height="32" rx="16" fill="url(#accent)"/>
+    <text x="280" y="335">Free · MIT</text>
+    <rect x="346" y="314" width="128" height="32" rx="16" fill="url(#accent)"/>
+    <text x="410" y="335">Any format</text>
+  </g>
+
+  <!-- mock app window with transcript output -->
+  <g font-family="Segoe UI, system-ui, sans-serif">
+    <rect x="700" y="70" width="500" height="240" rx="16" fill="#1e1e2e" stroke="#2c2c42" stroke-width="1.5"/>
+    <circle cx="726" cy="96" r="6" fill="#ef476f" opacity="0.8"/>
+    <circle cx="746" cy="96" r="6" fill="#ffd166" opacity="0.8"/>
+    <circle cx="766" cy="96" r="6" fill="#2ec4b6" opacity="0.8"/>
+    <text x="950" y="101" font-size="14" fill="#8a8aa3" text-anchor="middle">devlog.txt</text>
+    <line x1="700" y1="118" x2="1200" y2="118" stroke="#2c2c42" stroke-width="1.5"/>
+    <text x="728" y="152" font-size="17" font-family="Consolas, monospace" fill="#2ec4b6">[00:00:00]</text>
+    <text x="828" y="152" font-size="17" fill="#e6e6f0">Okay, today I'm fixing the parser.</text>
+    <text x="728" y="184" font-size="17" font-family="Consolas, monospace" fill="#2ec4b6">[00:01:34]</text>
+    <text x="828" y="184" font-size="17" fill="#e6e6f0">Bracket depth was off by one.</text>
+    <text x="728" y="216" font-size="17" font-family="Consolas, monospace" fill="#2ec4b6">[00:03:12]</text>
+    <text x="828" y="216" font-size="17" fill="#e6e6f0">Fixed it with a stack instead.</text>
+    <text x="728" y="248" font-size="17" font-family="Consolas, monospace" fill="#2ec4b6">[00:04:50]</text>
+    <text x="828" y="248" font-size="17" fill="#e6e6f0">Tests are green, moving on.</text>
+    <rect x="728" y="262" width="3" height="22" rx="1.5" fill="#2ec4b6"/>
+  </g>
+
+  <!-- "processing" pill -->
+  <g font-family="Segoe UI, system-ui, sans-serif">
+    <rect x="650" y="252" width="230" height="56" rx="28" fill="#1e1e2e" stroke="#2ec4b6" stroke-width="2"/>
+    <circle cx="678" cy="280" r="8" fill="#2ec4b6"/>
+    <text x="696" y="286" font-size="17" font-weight="600" fill="#e6e6f0">Transcribing…</text>
+  </g>
+</svg>
