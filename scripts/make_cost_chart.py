@@ -7,7 +7,7 @@ see the table in README.md for the exact plan names, prices, and source URLs.
 This script is a one-off content-generation tool, not part of the app itself,
 so its dependency (matplotlib) is intentionally not in requirements.txt:
 
-    pip install matplotlib
+    uv pip install matplotlib
     python scripts/make_cost_chart.py
 
 Output: docs/assets/cost-compare.png
@@ -28,11 +28,11 @@ OUT_PATH = os.path.join(HERE, "..", "docs", "assets", "cost-compare.png")
 # See README.md "Comparison" section for plan names, exact prices, source
 # URLs, and the date each page was checked (2026-09-30).
 DATA = [
-    ("VideoTranscriber", 0, "Free, forever"),
-    ("Otter.ai\n(Pro, annual)", 100, "$8.33/mo"),
-    ("TurboScribe\n(Unlimited, annual)", 120, "$10/mo"),
-    ("Descript\n(Hobbyist, annual)", 192, "$16/mo"),
-    ("Rev\n(Essentials, annual)", 306, "$25.49/mo"),
+    ("Rev  ·  Essentials", 306, "$25.49/mo billed yearly"),
+    ("Descript  ·  Hobbyist", 192, "$16/mo billed yearly"),
+    ("TurboScribe  ·  Unlimited", 120, "$10/mo billed yearly"),
+    ("Otter.ai  ·  Pro", 100, "$8.33/mo billed yearly"),
+    ("VideoTranscriber", 0, "free, forever"),
 ]
 
 BG = "#12161f"
@@ -46,42 +46,39 @@ PAID_COLOR = "#4d6a8a"
 def main() -> None:
     labels = [d[0] for d in DATA]
     values = [d[1] for d in DATA]
-    colors = [FREE_COLOR] + [PAID_COLOR] * (len(DATA) - 1)
+    colors = [PAID_COLOR] * (len(DATA) - 1) + [FREE_COLOR]
+    top = max(values)
 
-    fig, ax = plt.subplots(figsize=(9, 5), dpi=200)
+    fig, ax = plt.subplots(figsize=(9, 4.6), dpi=200)
     fig.patch.set_facecolor(BG)
     ax.set_facecolor(BG)
 
-    bars = ax.bar(labels, values, color=colors, width=0.6, zorder=3)
+    ypos = list(range(len(DATA)))[::-1]
+    # A sliver so the $0 row still shows a visible teal marker.
+    shown = [v if v > 0 else top * 0.012 for v in values]
+    ax.barh(ypos, shown, color=colors, height=0.62, zorder=3)
 
-    for bar, (_, value, note) in zip(bars, DATA, strict=True):
-        height = bar.get_height()
-        label = "$0/yr" if value == 0 else f"${value}/yr"
-        ax.text(
-            bar.get_x() + bar.get_width() / 2, height + 6,
-            label, ha="center", va="bottom", color=FG, fontsize=12, fontweight="bold",
-        )
-        ax.text(
-            bar.get_x() + bar.get_width() / 2, -18,
-            note, ha="center", va="top", color=MUTED, fontsize=9,
-        )
+    for y, (_, value, note) in zip(ypos, DATA, strict=True):
+        price = "$0" if value == 0 else f"${value}/yr"
+        color = FREE_COLOR if value == 0 else FG
+        x = max(value, top * 0.012) + top * 0.015
+        ax.text(x, y, price, va="center", ha="left", color=color,
+                fontsize=13, fontweight="bold")
+        ax.text(x, y - 0.33, note, va="center", ha="left", color=MUTED, fontsize=8.5)
 
-    ax.set_title(
-        "Yearly cost — VideoTranscriber vs. cloud transcription subscriptions",
-        color=FG, fontsize=13, pad=16,
-    )
-    ax.set_ylabel(
-        "USD per year (cheapest individual plan, billed annually)",
-        color=MUTED, fontsize=9,
-    )
-    ax.tick_params(colors=FG, labelsize=10)
-    ax.spines["top"].set_visible(False)
-    ax.spines["right"].set_visible(False)
-    ax.spines["left"].set_color(MUTED)
-    ax.spines["bottom"].set_color(MUTED)
-    ax.yaxis.grid(True, color="#2a3444", linewidth=0.7, zorder=0)
+    ax.set_yticks(ypos, labels)
+    ax.tick_params(axis="y", colors=FG, labelsize=11, length=0)
+    ax.tick_params(axis="x", colors=MUTED, labelsize=9)
+    ax.set_xlim(0, top * 1.28)
+    ax.set_xlabel("USD per year (cheapest individual plan, billed yearly) — checked 2026-09-30",
+                  color=MUTED, fontsize=8.5)
+    ax.set_title("What a year of transcription costs", color=FG, fontsize=14, pad=14,
+                 loc="left", fontweight="bold")
+    for side in ("top", "right", "left"):
+        ax.spines[side].set_visible(False)
+    ax.spines["bottom"].set_color("#2a3444")
+    ax.xaxis.grid(True, color="#2a3444", linewidth=0.7, zorder=0)
     ax.set_axisbelow(True)
-    ax.set_ylim(0, max(values) * 1.2)
 
     fig.tight_layout()
     os.makedirs(os.path.dirname(OUT_PATH), exist_ok=True)

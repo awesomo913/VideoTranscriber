@@ -484,14 +484,6 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
-    # Crash logger — only when running as CLI
-    try:
-        sys.path.insert(0, str(Path.home() / ".claude" / "scripts"))
-        from crash_logger import install
-        install(project_root=Path(__file__).parent)
-    except Exception:
-        pass
-
     args = _build_parser().parse_args()
     try:
         paths = collect_paths(

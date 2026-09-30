@@ -6,6 +6,7 @@ Requires: customtkinter, faster-whisper (audio decoding is handled internally
 via the bundled PyAV/FFmpeg libraries — no system ffmpeg install needed).
 """
 
+import logging
 import os
 import subprocess
 import sys
@@ -26,6 +27,8 @@ from transcribe_video import (
     transcribe,
     transcribe_batch,
 )
+
+logger = logging.getLogger(__name__)
 
 ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("dark-blue")
@@ -443,10 +446,7 @@ class App(ctk.CTk):
             self._output_path = last_txt
             self._copy_btn.configure(state="normal")
             self._open_btn.configure(state="normal")
-            try:
-                self._set_preview(last_txt.read_text(encoding="utf-8"))
-            except OSError:
-                pass
+            self._show_file_preview(last_txt)
         else:
             self._copy_btn.configure(state="normal")
             self._open_btn.configure(state="normal")
@@ -458,10 +458,7 @@ class App(ctk.CTk):
         self._copy_btn.configure(state="normal")
         self._open_btn.configure(state="normal")
         self._set_status(f"Done — saved to {output_path}", color=SUCCESS)
-        try:
-            self._set_preview(output_path.read_text(encoding="utf-8"))
-        except OSError:
-            pass
+        self._show_file_preview(output_path)
 
     def _on_error(self, msg: str) -> None:
         self._finish(success=False)
@@ -476,7 +473,12 @@ class App(ctk.CTk):
 
     def _copy_output(self):
         if self._output_path and self._output_path.exists():
-            text = self._output_path.read_text(encoding="utf-8")
+            try:
+                text = self._output_path.read_text(encoding="utf-8")
+            except OSError as exc:
+                logger.warning("Could not read %s for copy: %s", self._output_path, exc)
+                self._set_status(f"Could not read transcript: {exc}", color=ERROR)
+                return
             self.clipboard_clear()
             self.clipboard_append(text)
             self._set_status("Copied to clipboard.", color=SUCCESS)
@@ -484,12 +486,16 @@ class App(ctk.CTk):
     def _open_folder(self):
         if self._output_path:
             folder = self._output_path.parent
-            if sys.platform == "win32":
-                os.startfile(folder)
-            elif sys.platform == "darwin":
-                subprocess.run(["open", folder])
-            else:
-                subprocess.run(["xdg-open", folder])
+            try:
+                if sys.platform == "win32":
+                    os.startfile(folder)
+                elif sys.platform == "darwin":
+                    subprocess.run(["open", folder], check=True)
+                else:
+                    subprocess.run(["xdg-open", folder], check=True)
+            except (OSError, subprocess.CalledProcessError) as exc:
+                logger.warning("Could not open folder %s: %s", folder, exc)
+                self._set_status(f"Could not open folder: {folder}", color=ERROR)
 
     # ------------------------------------------------------------------
     # Helpers
@@ -498,6 +504,13 @@ class App(ctk.CTk):
     def _set_status(self, text: str, color: str = "#aabbcc"):
         self._status_var.set(text)
         self._status_label.configure(text_color=color)
+
+    def _show_file_preview(self, path: Path) -> None:
+        try:
+            self._set_preview(path.read_text(encoding="utf-8"))
+        except OSError as exc:
+            logger.warning("Could not read %s for preview: %s", path, exc)
+            self._set_preview(f"(Saved to {path}, but the preview could not be loaded: {exc})")
 
     def _set_preview(self, text: str):
         self._preview.configure(state="normal")
