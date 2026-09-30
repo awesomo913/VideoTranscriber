@@ -1,7 +1,10 @@
 """Tests for pure helper functions: timestamps, output paths, audio-stream check."""
 from __future__ import annotations
 
+import logging
 from pathlib import Path
+
+import pytest
 
 import transcribe_video as tv
 
@@ -116,7 +119,7 @@ class TestHasAudioStream:
         monkeypatch.setattr(tv.av, "open", lambda path: FakeContainer())
         assert tv.has_audio_stream(media) is False
 
-    def test_false_when_file_cannot_be_opened(self, monkeypatch, tmp_path):
+    def test_raises_media_open_error_when_file_cannot_be_opened(self, monkeypatch, tmp_path):
         media = tmp_path / "corrupt.mp4"
         media.write_bytes(b"not real media")
 
@@ -124,4 +127,17 @@ class TestHasAudioStream:
             raise OSError("bad file")
 
         monkeypatch.setattr(tv.av, "open", _raise)
-        assert tv.has_audio_stream(media) is False
+        with pytest.raises(tv.MediaOpenError, match="bad file"):
+            tv.has_audio_stream(media)
+
+
+class TestSetupLogging:
+    def test_writes_log_file_under_localappdata(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+        monkeypatch.setattr(tv.setup_logging, "_done", False, raising=False)
+        path = tv.setup_logging()
+        assert path == tmp_path / "VideoTranscriber" / "logs" / "app.log"
+        tv.logger.warning("hello log")
+        for h in logging.getLogger().handlers:
+            h.flush()
+        assert "hello log" in path.read_text(encoding="utf-8")

@@ -24,6 +24,7 @@ from transcribe_video import (
     SUPPORTED_EXTENSIONS,
     collect_paths,
     default_transcript_output_dir,
+    setup_logging,
     transcribe,
     transcribe_batch,
 )
@@ -405,6 +406,7 @@ class App(ctk.CTk):
                 )
                 self.after(0, self._on_batch_done, res)
         except Exception as exc:
+            logger.exception("Transcription failed in worker thread")
             self.after(0, self._on_error, str(exc))
 
     def _on_progress_update(self, current_sec: float, total_sec: float) -> None:
@@ -521,6 +523,8 @@ class App(ctk.CTk):
 
 
 def main():
+    log_path = setup_logging()
+    logger.info("VideoTranscriber started (log: %s)", log_path)
     app = App()
     app.mainloop()
 

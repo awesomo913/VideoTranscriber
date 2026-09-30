@@ -185,6 +185,12 @@ print(f"Written to {out}")
 ```
 </details>
 
+<details>
+<summary>Something failed — where's the log?</summary>
+
+VideoTranscriber writes a plain-text log to `%LOCALAPPDATA%\VideoTranscriber\logs\app.log` on Windows (`~/.local/state/VideoTranscriber/logs/app.log` elsewhere). If you open an issue, attaching the last few lines helps a lot — they contain file names and timings, never your transcript text.
+</details>
+
 ## Build from source
 
 Requires Python 3.11.

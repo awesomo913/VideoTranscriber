@@ -47,12 +47,47 @@ DEFAULT_MODEL = "small"
 MODEL_SIZES = {"tiny": "75 MB", "base": "145 MB", "small": "480 MB",
                "medium": "1.5 GB", "large-v3": "3 GB"}
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s  %(levelname)-7s  %(message)s",
-    datefmt="%H:%M:%S",
-)
 logger = logging.getLogger(__name__)
+
+
+class MediaOpenError(ValueError):
+    """The media file exists but could not be opened or read."""
+
+
+def log_file_path() -> Path:
+    """Where the app writes its log (on Windows: LOCALAPPDATA/VideoTranscriber/logs)."""
+    base = os.environ.get("LOCALAPPDATA") or str(Path.home() / ".local" / "state")
+    return Path(base) / "VideoTranscriber" / "logs" / "app.log"
+
+
+def setup_logging() -> Path | None:
+    """
+    Log to a file (always) and to stderr when one exists.
+
+    A windowed exe has no stderr, so without the file handler every log line
+    would be silently dropped. Returns the log path, or None if it could not
+    be created (logging then falls back to stderr only).
+    """
+    fmt = logging.Formatter("%(asctime)s  %(levelname)-7s  %(message)s", "%Y-%m-%d %H:%M:%S")
+    root = logging.getLogger()
+    root.setLevel(logging.INFO)
+    if getattr(setup_logging, "_done", False):
+        return log_file_path()
+    setup_logging._done = True  # type: ignore[attr-defined]
+    if sys.stderr is not None:
+        stream = logging.StreamHandler()
+        stream.setFormatter(fmt)
+        root.addHandler(stream)
+    path = log_file_path()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        handler = logging.FileHandler(path, encoding="utf-8")
+    except OSError as exc:
+        logger.warning("Could not open log file %s: %s", path, exc)
+        return None
+    handler.setFormatter(fmt)
+    root.addHandler(handler)
+    return path
 
 
 # ---------------------------------------------------------------------------
@@ -101,13 +136,16 @@ def has_audio_stream(file_path: Path) -> bool:
     media) to open the container and look for an audio stream — no external
     ffmpeg/ffprobe binary required, since PyAV ships its own bundled FFmpeg
     libraries.
+
+    Raises MediaOpenError (with the underlying reason) if the file cannot be
+    opened at all, so callers don't mistake "locked/corrupt" for "no audio".
     """
     try:
         with av.open(str(file_path)) as container:
             return len(container.streams.audio) > 0
     except (av.error.FFmpegError, OSError, ValueError) as exc:
         logger.warning("Could not open '%s' to check for audio: %s", file_path.name, exc)
-        return False
+        raise MediaOpenError(f"Could not read '{file_path.name}': {exc}") from exc
 
 
 # ---------------------------------------------------------------------------
@@ -198,7 +236,7 @@ def _validate_media_path(input_path: Path) -> None:
     if not has_audio_stream(input_path):
         raise ValueError(
             f"No audio stream found in '{input_path.name}'. "
-            "This file is either video-only, silent, or could not be opened/read."
+            "This file looks video-only or silent."
         )
 
 
@@ -329,11 +367,38 @@ def transcribe_batch(
         cp = Path(combined_path)
         cp.parent.mkdir(parents=True, exist_ok=True)
         combo_fp = cp.open("w", encoding="utf-8")
-        combo_fp.write(
-            "Combined transcripts (offline faster-whisper)\n"
-            f"Sources: {len(paths)} file(s)\n\n"
+    try:
+        if combo_fp is not None:
+            combo_fp.write(
+                "Combined transcripts (offline faster-whisper)\n"
+                f"Sources: {len(paths)} file(s)\n\n"
+            )
+        results = _transcribe_batch_loop(
+            paths, model_name, timestamps, on_segment, on_file, output_dir,
+            combo_fp, write_individual_txts, on_progress,
         )
+    finally:
+        if combo_fp is not None:
+            combo_fp.close()
+    if combined_path is not None:
+        logger.info("Combined transcript saved: %s", combined_path)
 
+    ok = sum(1 for _, e in results if e is None)
+    logger.info("Batch finished: %d/%d succeeded.", ok, len(results))
+    return results
+
+
+def _transcribe_batch_loop(
+    paths: list[Path],
+    model_name: str,
+    timestamps: bool,
+    on_segment: Callable[[int, str], None] | None,
+    on_file: Callable[[int, int, Path], None] | None,
+    output_dir: Path | None,
+    combo_fp,
+    write_individual_txts: bool,
+    on_progress: Callable[[float, float], None] | None,
+) -> list[tuple[Path, Exception | None]]:
     size = MODEL_SIZES.get(model_name, "?")
     logger.info(
         "Batch: %d file(s) — loading model '%s' (~%s)…",
@@ -358,12 +423,19 @@ def transcribe_batch(
 
         logger.info("Transcribing [%d/%d]: %s", i, len(paths), input_path.name)
 
-        segments, info = _run_transcribe_attempt(model, input_path, on_segment, on_progress)
-        if segments is None and not using_cpu:
-            logger.warning("GPU path failed — switching to CPU for remaining files.")
-            model = _load_whisper(model_name, "cpu", "int8")
-            using_cpu = True
-            segments, info = _run_transcribe_attempt(model, input_path, on_segment, on_progress)
+        try:
+            segments, info = _run_transcribe_attempt(
+                model, input_path, on_segment, on_progress)
+            if segments is None and not using_cpu:
+                logger.warning("GPU path failed — switching to CPU for remaining files.")
+                model = _load_whisper(model_name, "cpu", "int8")
+                using_cpu = True
+                segments, info = _run_transcribe_attempt(
+                    model, input_path, on_segment, on_progress)
+        except Exception as exc:  # one bad file must not abort the whole batch
+            logger.exception("[%d/%d] %s — transcription failed", i, len(paths), input_path.name)
+            results.append((input_path, exc))
+            continue
 
         if segments is None:
             err = RuntimeError("Transcription failed on both GPU and CPU.")
@@ -404,12 +476,6 @@ def transcribe_batch(
             logger.exception("[%d/%d] %s", i, len(paths), input_path.name)
             results.append((input_path, exc))
 
-    if combo_fp is not None:
-        combo_fp.close()
-        logger.info("Combined transcript saved: %s", combined_path)
-
-    ok = sum(1 for _, e in results if e is None)
-    logger.info("Batch finished: %d/%d succeeded.", ok, len(results))
     return results
 
 
@@ -484,6 +550,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
+    setup_logging()
     args = _build_parser().parse_args()
     try:
         paths = collect_paths(

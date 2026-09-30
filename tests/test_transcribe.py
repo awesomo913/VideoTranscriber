@@ -181,6 +181,40 @@ class TestTranscribeBatch:
     def test_empty_paths_returns_empty_list(self):
         assert tv.transcribe_batch([]) == []
 
+    def test_continues_after_decode_error_and_closes_combined_file(
+        self, tmp_path, patch_has_audio, patch_model_loader, monkeypatch
+    ):
+        bad = _touch(tmp_path / "bad.mp4")
+        good = _touch(tmp_path / "good.mp4")
+        real_attempt = tv._run_transcribe_attempt
+
+        def _attempt(model, path, on_segment, on_progress=None):
+            if Path(path).name == "bad.mp4":
+                raise ValueError("corrupt stream mid-file")
+            return real_attempt(model, path, on_segment, on_progress)
+
+        monkeypatch.setattr(tv, "_run_transcribe_attempt", _attempt)
+        combined = tmp_path / "merged.txt"
+        results = tv.transcribe_batch(
+            [bad, good], output_dir=tmp_path / "out", combined_path=combined
+        )
+        errs = [err for _, err in results]
+        assert isinstance(errs[0], ValueError)
+        assert errs[1] is None
+        assert "good.mp4" in combined.read_text(encoding="utf-8")
+
+    def test_open_error_is_reported_as_unreadable_not_silent(
+        self, tmp_path, patch_model_loader, monkeypatch
+    ):
+        locked = _touch(tmp_path / "locked.mp4")
+
+        def _raise(p):
+            raise tv.MediaOpenError(f"Could not read '{p.name}': permission denied")
+
+        monkeypatch.setattr(tv, "has_audio_stream", _raise)
+        results = tv.transcribe_batch([locked], output_dir=tmp_path / "out")
+        assert "permission denied" in str(results[0][1])
+
     def test_continues_after_one_file_fails_validation(
         self, tmp_path, patch_model_loader, monkeypatch
     ):
