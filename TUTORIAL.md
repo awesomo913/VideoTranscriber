@@ -1,5 +1,5 @@
 # VideoTranscriber — Tutorial
-**Last updated:** 2026-04-21 (v1.0.0)
+**Last updated:** 2026-09-30 (v1.0.0)
 
 ---
 
@@ -20,62 +20,50 @@ Jump to your platform:
 
 ### Windows
 
-**Requirements:** Windows 10/11, Python 3.10+
+**Requirements:** Windows 10/11, Python 3.11
 
-**Step 1 — Install ffmpeg**
+**Step 1 — Install Python dependencies**
 ```powershell
-winget install ffmpeg
+uv pip install -r requirements.txt
 ```
-Or download manually from https://ffmpeg.org/download.html and add the `bin/` folder to your PATH.
+If you don't have `uv`: `pip install uv` first, then run the above. No separate ffmpeg install is needed — transcription decodes media through PyAV, which ships its own bundled FFmpeg libraries.
 
-Verify: open a new terminal and run `ffmpeg -version`
-
-**Step 2 — Install Python dependencies**
-```powershell
-uv pip install faster-whisper customtkinter
-```
-If you don't have `uv`: `pip install uv` first, then run the above.
-
-**Step 3a — Run the GUI**
+**Step 2a — Run the GUI**
 ```powershell
 python transcribe_gui.py
 ```
-A dark-themed window opens. Click **Browse…**, select your file, choose a model, click **Transcribe**.
+A dark-themed window opens. Click **File(s)…** or **Folder…**, select your media, choose a model, click **Transcribe**.
 
-**Step 3b — Run the CLI**
+**Step 2b — Run the CLI**
 ```powershell
 python transcribe_video.py devlog.mp4
 ```
 
-**Step 4 (optional) — Build a standalone .exe**
+**Step 3 (optional) — Build a standalone .exe**
 ```powershell
-uv pip install pyinstaller
-build_exe.bat
+uv pip install -r requirements-dev.txt
+python build.py
 ```
-Output: `dist\VideoTranscriber.exe` — copy anywhere. ffmpeg must remain on PATH.
+Output: `dist\VideoTranscriber.exe` — copy anywhere and run.
 
 ---
 
 ### macOS
 
-**Requirements:** macOS 12+, Python 3.10+, [Homebrew](https://brew.sh)
+**Requirements:** macOS 12+, Python 3.11
 
-**Step 1 — Install ffmpeg**
+**Step 1 — Install Python dependencies**
 ```bash
-brew install ffmpeg
+pip install -r requirements.txt
 ```
+No separate ffmpeg install is needed — media decoding goes through the bundled PyAV/FFmpeg libraries.
 
-**Step 2 — Install Python dependencies**
-```bash
-pip install faster-whisper customtkinter
-```
-
-**Step 3a — Run the GUI**
+**Step 2a — Run the GUI**
 ```bash
 python transcribe_gui.py
 ```
 
-**Step 3b — Run the CLI**
+**Step 2b — Run the CLI**
 ```bash
 python transcribe_video.py devlog.mp4
 ```
@@ -86,26 +74,23 @@ python transcribe_video.py devlog.mp4
 
 ### Linux
 
-**Requirements:** Ubuntu 20.04+ / Debian 11+ (or any distro with Python 3.10+)
+**Requirements:** Ubuntu 20.04+ / Debian 11+ (or any distro with Python 3.11), `python3-tk` for the GUI
 
-**Step 1 — Install ffmpeg**
+**Step 1 — Install Python dependencies**
 ```bash
-sudo apt update && sudo apt install ffmpeg python3-pip -y
+sudo apt update && sudo apt install python3-pip python3-tk -y
+pip install -r requirements.txt
 ```
+No separate ffmpeg install is needed — media decoding goes through the bundled PyAV/FFmpeg libraries.
 
-**Step 2 — Install Python dependencies**
-```bash
-pip install faster-whisper customtkinter
-```
-
-**Step 3a — Run the GUI**
+**Step 2a — Run the GUI**
 
 Requires a desktop environment (X11 or Wayland + Tk).
 ```bash
 python transcribe_gui.py
 ```
 
-**Step 3b — Run the CLI (headless / servers)**
+**Step 2b — Run the CLI (headless / servers)**
 ```bash
 python transcribe_video.py devlog.mp4
 ```
@@ -116,23 +101,18 @@ python transcribe_video.py devlog.mp4
 
 ### Raspberry Pi
 
-**Requirements:** Raspberry Pi 4 or 5, Raspberry Pi OS (64-bit), Python 3.10+
+**Requirements:** Raspberry Pi 4 or 5, Raspberry Pi OS (64-bit), Python 3.11
 
 Raspberry Pi uses ARM CPU — no GPU acceleration. Use `tiny` or `base` model for reasonable speed.
 
-**Step 1 — Install ffmpeg**
+**Step 1 — Install Python dependencies**
 ```bash
-sudo apt update && sudo apt install ffmpeg -y
-```
-
-**Step 2 — Install Python dependencies**
-```bash
-pip install faster-whisper
+pip install faster-whisper av
 # GUI optional — skip customtkinter on headless Pi
 pip install customtkinter  # only if you have a desktop
 ```
 
-**Step 3 — Transcribe (recommended: CLI)**
+**Step 2 — Transcribe (recommended: CLI)**
 ```bash
 # Use 'tiny' model — 'small' can take 10+ min on Pi 4 CPU
 python transcribe_video.py devlog.mp4 --model tiny
@@ -162,12 +142,12 @@ python transcribe_video.py devlog.mp4 --model base
 **Step 1 — Set up Termux**
 ```bash
 pkg update && pkg upgrade -y
-pkg install python ffmpeg -y
+pkg install python -y
 ```
 
 **Step 2 — Install faster-whisper**
 ```bash
-pip install faster-whisper
+pip install faster-whisper av
 ```
 
 **Step 3 — Copy your video file to Termux storage**
@@ -188,10 +168,10 @@ python transcribe_video.py ~/storage/downloads/devlog.mp4 --model tiny
 
 ## 2. Feature Walkthrough
 
-### GUI — Browse & Transcribe
+### GUI — Pick files & Transcribe
 - **What it does:** Graphical window for picking files, choosing settings, and viewing output.
-- **How:** Click **Browse…** → select a `.mp4` / `.wav` / `.mp3` → choose model → click **Transcribe**.
-- **Progress:** The status bar shows each segment as it's processed (`Segment 14: function naming...`).
+- **How:** Click **File(s)…** (or **Folder…** for a batch) → select your media → choose a model → click **Transcribe**.
+- **Progress:** The status bar shows each segment as it's processed (`Segment 14: function naming...`), plus elapsed time and an ETA.
 - **Output:** The text preview fills in when done. Click **Open folder** to jump to the `.txt` file, or **Copy all** to paste into an LLM.
 - **Gotcha:** On first run for a new model, the app appears frozen for ~30 seconds while the model downloads. It's working — don't close it.
 
@@ -201,7 +181,7 @@ python transcribe_video.py ~/storage/downloads/devlog.mp4 --model tiny
 - **Example:**
   ```bash
   python transcribe_video.py 2026-04-21_devlog.mp4
-  # Output: 2026-04-21_devlog.txt in the same folder
+  # Output: 2026-04-21_devlog.txt on your Desktop (use --out-dir to change this)
   ```
 
 ### Timestamps
@@ -250,10 +230,10 @@ Output is clean prose — easier to grep or copy-paste.
 
 | Symptom | Likely cause | Fix |
 |---------|--------------|-----|
-| `ffmpeg not found` | ffmpeg not on PATH | Reinstall or add `bin/` to PATH. Open a **new** terminal after install. |
 | App freezes after clicking Transcribe | Downloading model (first run) | Wait 30–60 seconds. Check network. |
 | `cublas64_12.dll not found` | CUDA libs not installed | App auto-falls back to CPU — this is normal. You'll see a warning in logs. |
-| `ImportError: No module named faster_whisper` | Package not installed | Run `uv pip install faster-whisper` |
+| `ImportError: No module named faster_whisper` | Package not installed | Run `uv pip install -r requirements.txt` |
+| `No audio stream found in '<file>'` | File is video-only, silent, or corrupt | Check the file plays sound in a normal media player. |
 | Output is empty / 0 segments | Audio has no speech (or too quiet) | Check the file plays sound. Try `--model small` for better detection. |
 | Pi: very slow transcription | ARM CPU with large model | Use `--model tiny` or `--model base` on Raspberry Pi. |
 | Android: `pip install` fails | Arch mismatch or missing wheel | Run `pkg install python-pip && pip install faster-whisper --no-binary :all:` |
@@ -273,7 +253,7 @@ A: Yes — CUDA (NVIDIA) on Windows/Linux, MPS on Apple Silicon Mac. The app aut
 A: All languages Whisper supports (~99). Language is auto-detected per file.
 
 **Q: The .exe — does it bundle everything?**
-A: The `.exe` bundles Python + all libraries. Model weights (~480 MB for `small`) are still downloaded at runtime on first use. ffmpeg must be on PATH.
+A: The `.exe` bundles Python, faster-whisper, and the PyAV/FFmpeg libraries used for decoding — no separate ffmpeg install needed. Model weights (~480 MB for `small`) are still downloaded at runtime on first use.
 
 **Q: Can I import this in my own Python script?**
 A: Yes:
@@ -287,6 +267,10 @@ print(f"Written to {out}")
 ---
 
 ## 6. Changelog
+
+### 2026-09-30 — v1.0.0 (public release)
+- Removed the ffmpeg/ffprobe install requirement — decoding goes through the bundled PyAV/FFmpeg libraries instead.
+- Added `--out-dir`/`-o`, `--dir`/`--recursive`, `--combined`/`--combined-only`/`--combined-out` to the CLI; GUI gained File(s)…/Folder…/Clear, an output-folder picker, and a progress ETA.
 
 ### 2026-04-21 — v1.0.0
 - Initial release
