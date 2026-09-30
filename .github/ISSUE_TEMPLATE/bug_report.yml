@@ -1,0 +1,68 @@
+name: Bug report
+description: Something isn't working right
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug. The more detail you give, the faster it can get fixed.
+
+  - type: input
+    id: os-version
+    attributes:
+      label: Operating system
+      description: e.g. Windows 11 23H2, macOS 14, Ubuntu 22.04, Raspberry Pi OS, Android/Termux
+      placeholder: Windows 11 23H2
+    validations:
+      required: true
+
+  - type: input
+    id: vt-version
+    attributes:
+      label: VideoTranscriber version
+      description: The release you downloaded/built, or the commit if built from source
+      placeholder: v1.0.0
+    validations:
+      required: true
+
+  - type: dropdown
+    id: interface
+    attributes:
+      label: Interface used
+      options:
+        - GUI (transcribe_gui.py / VideoTranscriber.exe)
+        - CLI (transcribe_video.py)
+        - Both / not sure
+    validations:
+      required: true
+
+  - type: input
+    id: model
+    attributes:
+      label: Whisper model
+      description: tiny / base / small / medium / large-v3
+      placeholder: small
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: What did you do, what did you expect, what happened instead?
+      placeholder: |
+        1. Ran: python transcribe_video.py devlog.mp4
+        2. Expected: devlog.txt on Desktop
+        3. Actual: crashed with a traceback
+      render: text
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant log / error output
+      description: Paste the console output or traceback (redact anything personal first).
+      render: text
+    validations:
+      required: false

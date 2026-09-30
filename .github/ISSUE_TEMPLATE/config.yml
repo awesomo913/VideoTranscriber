@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Ask a question / discussion
+    url: https://github.com/awesomo913/VideoTranscriber/discussions
+    about: For general questions and ideas that aren't a bug report or a concrete feature request.
+  - name: Report a security vulnerability
+    url: https://github.com/awesomo913/VideoTranscriber/security/advisories/new
+    about: Please do not report security vulnerabilities in a public issue — see SECURITY.md.
