@@ -2,7 +2,8 @@
 """
 transcribe_gui.py — Desktop GUI for VideoTranscriber.
 
-Requires: customtkinter, faster-whisper, ffmpeg on PATH.
+Requires: customtkinter, faster-whisper (audio decoding is handled internally
+via the bundled PyAV/FFmpeg libraries — no system ffmpeg install needed).
 """
 
 import os
@@ -11,15 +12,19 @@ import sys
 import threading
 import time
 from pathlib import Path
+from tkinter import filedialog, messagebox
 
 import customtkinter as ctk
-from tkinter import filedialog, messagebox
 
 sys.path.insert(0, str(Path(__file__).parent))
 from transcribe_video import (
-    SUPPORTED_EXTENSIONS, MODEL_SIZES, DEFAULT_MODEL,
-    check_ffmpeg, collect_paths, default_transcript_output_dir,
-    transcribe, transcribe_batch,
+    DEFAULT_MODEL,
+    MODEL_SIZES,
+    SUPPORTED_EXTENSIONS,
+    collect_paths,
+    default_transcript_output_dir,
+    transcribe,
+    transcribe_batch,
 )
 
 ctk.set_appearance_mode("dark")
@@ -208,10 +213,6 @@ class App(ctk.CTk):
     # ------------------------------------------------------------------
 
     def _check_deps_on_start(self):
-        if not check_ffmpeg():
-            self._set_status("⚠ ffmpeg not found — see TUTORIAL.md for install instructions.",
-                             color=WARNING)
-            return
         try:
             import faster_whisper  # noqa: F401
         except ImportError:

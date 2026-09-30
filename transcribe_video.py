@@ -9,8 +9,9 @@ Output: by default <Desktop>/<same-stem>.txt (see default_transcript_output_dir)
         use --out-dir to override. Optional [HH:MM:SS] segment markers.
 
 Setup:
-    winget install ffmpeg          (Windows) / brew install ffmpeg (Mac)
     uv pip install faster-whisper
+    (no separate ffmpeg install needed — faster-whisper decodes audio via PyAV,
+    which ships its own bundled FFmpeg libraries)
 
 Usage:
     python transcribe_video.py devlog.mp4
@@ -22,15 +23,14 @@ Usage:
 
 import argparse
 import hashlib
-import json
 import logging
 import os
-import shutil
-import subprocess
 import sys
+from collections.abc import Callable
 from datetime import timedelta
 from pathlib import Path
-from typing import Callable, List, Optional, Tuple, Union
+
+import av
 
 SUPPORTED_EXTENSIONS = {
     ".mp4", ".mp3", ".wav", ".m4a", ".webm", ".ogg", ".flac", ".aac", ".mpeg",
@@ -93,22 +93,21 @@ def format_timestamp(seconds: float) -> str:
     return f"[{h:02d}:{m:02d}:{s:02d}]"
 
 
-def check_ffmpeg() -> bool:
-    return shutil.which("ffmpeg") is not None
-
-
 def has_audio_stream(file_path: Path) -> bool:
-    """Return True if the file contains at least one audio stream."""
+    """
+    Return True if the file contains at least one audio stream.
+
+    Uses PyAV (the same library faster-whisper uses internally to decode
+    media) to open the container and look for an audio stream — no external
+    ffmpeg/ffprobe binary required, since PyAV ships its own bundled FFmpeg
+    libraries.
+    """
     try:
-        result = subprocess.run(
-            ["ffprobe", "-v", "quiet", "-print_format", "json",
-             "-show_streams", "-select_streams", "a", str(file_path)],
-            capture_output=True, text=True, timeout=10,
-        )
-        streams = json.loads(result.stdout).get("streams", [])
-        return len(streams) > 0
-    except Exception:
-        return True  # if ffprobe fails, let faster-whisper try anyway
+        with av.open(str(file_path)) as container:
+            return len(container.streams.audio) > 0
+    except (av.error.FFmpegError, OSError, ValueError) as exc:
+        logger.warning("Could not open '%s' to check for audio: %s", file_path.name, exc)
+        return False
 
 
 # ---------------------------------------------------------------------------
@@ -119,8 +118,8 @@ def _whisper_model_class():
     try:
         from faster_whisper import WhisperModel
         return WhisperModel
-    except ImportError:
-        raise ImportError("Run: uv pip install faster-whisper")
+    except ImportError as exc:
+        raise ImportError("Run: uv pip install faster-whisper") from exc
 
 
 def _load_whisper(model_name: str, device: str, compute: str):
@@ -131,9 +130,9 @@ def _load_whisper(model_name: str, device: str, compute: str):
 def _run_transcribe_attempt(
     model: object,
     input_path: Path,
-    on_segment: Optional[Callable[[int, str], None]],
-    on_progress: Optional[Callable[[float, float], None]] = None,
-) -> Union[Tuple[list, object], Tuple[None, None]]:
+    on_segment: Callable[[int, str], None] | None,
+    on_progress: Callable[[float, float], None] | None = None,
+) -> tuple[list, object] | tuple[None, None]:
     """Return (segments, info) or (None, None) if CUDA failed and CPU should be tried."""
     try:
         segs, inf = model.transcribe(
@@ -157,9 +156,9 @@ def _run_transcribe_attempt(
     return collected, inf
 
 
-def _lines_from_segments(segments: list, timestamps: bool) -> List[str]:
+def _lines_from_segments(segments: list, timestamps: bool) -> list[str]:
     """Turn Whisper segments into transcript lines (non-empty text only)."""
-    lines: List[str] = []
+    lines: list[str] = []
     for seg in segments:
         text = seg.text.strip()
         if not text:
@@ -174,8 +173,8 @@ def _write_transcript_text(
     segments: list,
     info: object,
     timestamps: bool,
-    output_dir: Optional[Path] = None,
-    lines: Optional[List[str]] = None,
+    output_dir: Path | None = None,
+    lines: list[str] | None = None,
 ) -> Path:
     if lines is None:
         lines = _lines_from_segments(segments, timestamps)
@@ -196,26 +195,19 @@ def _validate_media_path(input_path: Path) -> None:
         )
     if not input_path.exists():
         raise FileNotFoundError(f"File not found: {input_path}")
-    if not check_ffmpeg():
-        raise EnvironmentError(
-            "ffmpeg not found. Install it:\n"
-            "  Windows: winget install ffmpeg\n"
-            "  Mac:     brew install ffmpeg\n"
-            "  Linux:   sudo apt install ffmpeg"
-        )
     if not has_audio_stream(input_path):
         raise ValueError(
             f"No audio stream found in '{input_path.name}'. "
-            "This file is video-only and cannot be transcribed."
+            "This file is either video-only, silent, or could not be opened/read."
         )
 
 
 def collect_paths(
-    files: List[Path],
-    directory: Optional[Path] = None,
+    files: list[Path],
+    directory: Path | None = None,
     recursive: bool = False,
-    folder_skipped_media: Optional[List[Path]] = None,
-) -> List[Path]:
+    folder_skipped_media: list[Path] | None = None,
+) -> list[Path]:
     """
     Build a sorted, de-duplicated list of media paths from explicit files
     and/or an optional directory scan.
@@ -225,7 +217,7 @@ def collect_paths(
     common non-media types (``_SKIP_REPORT_SUFFIXES``). Callers can show these in
     the UI so users know why a video did not enter the queue.
     """
-    out: List[Path] = []
+    out: list[Path] = []
     seen: set = set()
     if directory is not None:
         d = Path(directory)
@@ -260,9 +252,9 @@ def transcribe(
     input_path: Path,
     model_name: str = DEFAULT_MODEL,
     timestamps: bool = True,
-    on_segment: Optional[Callable[[int, str], None]] = None,
-    output_dir: Optional[Path] = None,
-    on_progress: Optional[Callable[[float, float], None]] = None,
+    on_segment: Callable[[int, str], None] | None = None,
+    output_dir: Path | None = None,
+    on_progress: Callable[[float, float], None] | None = None,
 ) -> Path:
     """
     Transcribe *input_path* and write a .txt file (default: user's Desktop).
@@ -300,16 +292,16 @@ def transcribe(
 
 
 def transcribe_batch(
-    paths: List[Path],
+    paths: list[Path],
     model_name: str = DEFAULT_MODEL,
     timestamps: bool = True,
-    on_segment: Optional[Callable[[int, str], None]] = None,
-    on_file: Optional[Callable[[int, int, Path], None]] = None,
-    output_dir: Optional[Path] = None,
-    combined_path: Optional[Path] = None,
+    on_segment: Callable[[int, str], None] | None = None,
+    on_file: Callable[[int, int, Path], None] | None = None,
+    output_dir: Path | None = None,
+    combined_path: Path | None = None,
     write_individual_txts: bool = True,
-    on_progress: Optional[Callable[[float, float], None]] = None,
-) -> List[Tuple[Path, Optional[Exception]]]:
+    on_progress: Callable[[float, float], None] | None = None,
+) -> list[tuple[Path, Exception | None]]:
     """
     Transcribe many files using one model load when possible (CPU fallback
     applies to the rest of the queue once triggered).
@@ -350,7 +342,7 @@ def transcribe_batch(
 
     model = _load_whisper(model_name, "auto", "auto")
     using_cpu = False
-    results: List[Tuple[Path, Optional[Exception]]] = []
+    results: list[tuple[Path, Exception | None]] = []
 
     for i, input_path in enumerate(paths, start=1):
         input_path = Path(input_path)
@@ -359,7 +351,7 @@ def transcribe_batch(
 
         try:
             _validate_media_path(input_path)
-        except (ValueError, FileNotFoundError, EnvironmentError) as exc:
+        except (OSError, ValueError, FileNotFoundError) as exc:
             logger.error("[%d/%d] %s — %s", i, len(paths), input_path.name, exc)
             results.append((input_path, exc))
             continue
@@ -381,7 +373,7 @@ def transcribe_batch(
 
         try:
             lines = _lines_from_segments(segments, timestamps)
-            out: Optional[Path] = None
+            out: Path | None = None
             if write_individual_txts:
                 out = _write_transcript_text(
                     input_path,
@@ -521,7 +513,7 @@ def main() -> None:
     logger.info("Transcript output folder: %s", out_dir)
 
     want_combined = args.combined or args.combined_only
-    combined_path: Optional[Path] = None
+    combined_path: Path | None = None
     write_individual = not args.combined_only
     if want_combined:
         combined_path = (
@@ -554,7 +546,7 @@ def main() -> None:
                 for target, err in failed:
                     logger.error("Failed: %s — %s", target, err)
                 sys.exit(1)
-    except (ValueError, FileNotFoundError, EnvironmentError, ImportError) as exc:
+    except (OSError, ValueError, FileNotFoundError, ImportError) as exc:
         logger.error("%s", exc)
         sys.exit(1)
     except Exception as exc:
