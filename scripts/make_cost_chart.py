@@ -54,7 +54,7 @@ def main() -> None:
 
     bars = ax.bar(labels, values, color=colors, width=0.6, zorder=3)
 
-    for bar, (_, value, note) in zip(bars, DATA):
+    for bar, (_, value, note) in zip(bars, DATA, strict=True):
         height = bar.get_height()
         label = "$0/yr" if value == 0 else f"${value}/yr"
         ax.text(
@@ -70,7 +70,10 @@ def main() -> None:
         "Yearly cost — VideoTranscriber vs. cloud transcription subscriptions",
         color=FG, fontsize=13, pad=16,
     )
-    ax.set_ylabel("USD per year (cheapest individual plan, billed annually)", color=MUTED, fontsize=9)
+    ax.set_ylabel(
+        "USD per year (cheapest individual plan, billed annually)",
+        color=MUTED, fontsize=9,
+    )
     ax.tick_params(colors=FG, labelsize=10)
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)

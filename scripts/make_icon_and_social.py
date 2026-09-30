@@ -114,7 +114,10 @@ def make_social_preview(icon: Image.Image) -> Image.Image:
     title_font = _font(64)
     sub_font = _font_regular(28)
     draw.text((110, 450), "VideoTranscriber", font=title_font, fill=FG)
-    draw.text((112, 525), "Turn video and audio into text — 100% offline.", font=sub_font, fill=MUTED)
+    draw.text(
+        (112, 525), "Turn video and audio into text — 100% offline.",
+        font=sub_font, fill=MUTED,
+    )
 
     return img
 
