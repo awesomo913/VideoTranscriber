@@ -8,6 +8,10 @@ dist/
 build/
 *.spec
 
+# Test / lint artifacts
+.pytest_cache/
+.ruff_cache/
+
 # Models (downloaded at runtime — too large to commit)
 *.bin
 *.pt
@@ -17,6 +21,7 @@ build/
 # Output transcripts (personal content)
 *.txt
 !requirements.txt
+!requirements-dev.txt
 !llms.txt
 !.well-known/llms.txt
 
@@ -36,4 +41,10 @@ logs/
 # Env
 .env
 .venv/
+.venv-build/
 venv/
+
+# Local AI dev tooling / internal notes — not part of the published project
+.claude/
+CLAUDE.md
+PROOF.md
