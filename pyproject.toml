@@ -1,0 +1,16 @@
+[project]
+name = "videotranscriber"
+version = "1.0.0"
+description = "Offline, free, local video and audio transcription using faster-whisper."
+requires-python = ">=3.11"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+exclude = ["build", "dist", ".venv", ".venv-build", ".claude"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
