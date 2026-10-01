@@ -59,10 +59,10 @@
     <rect x="728" y="262" width="3" height="22" rx="1.5" fill="#2ec4b6"/>
   </g>
 
-  <!-- "processing" pill -->
+  <!-- "processing" pill (placed below the devlog window, clear of its border) -->
   <g font-family="Segoe UI, system-ui, sans-serif">
-    <rect x="650" y="252" width="230" height="56" rx="28" fill="#1e1e2e" stroke="#2ec4b6" stroke-width="2"/>
-    <circle cx="678" cy="280" r="8" fill="#2ec4b6"/>
-    <text x="696" y="286" font-size="17" font-weight="600" fill="#e6e6f0">Transcribing…</text>
+    <rect x="650" y="322" width="230" height="56" rx="28" fill="#1e1e2e" stroke="#2ec4b6" stroke-width="2"/>
+    <circle cx="678" cy="350" r="8" fill="#2ec4b6"/>
+    <text x="696" y="356" font-size="17" font-weight="600" fill="#e6e6f0">Transcribing…</text>
   </g>
 </svg>

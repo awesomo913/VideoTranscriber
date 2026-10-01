@@ -58,13 +58,16 @@ def main() -> None:
     shown = [v if v > 0 else top * 0.012 for v in values]
     ax.barh(ypos, shown, color=colors, height=0.62, zorder=3)
 
+    label_bbox = dict(boxstyle="square,pad=0.15", fc=BG, ec="none")
+    label_texts = []
     for y, (_, value, note) in zip(ypos, DATA, strict=True):
         price = "$0" if value == 0 else f"${value}/yr"
         color = FREE_COLOR if value == 0 else FG
         x = max(value, top * 0.012) + top * 0.015
-        ax.text(x, y, price, va="center", ha="left", color=color,
-                fontsize=13, fontweight="bold")
-        ax.text(x, y - 0.33, note, va="center", ha="left", color=MUTED, fontsize=8.5)
+        label_texts.append(ax.text(x, y, price, va="center", ha="left", color=color,
+                fontsize=13, fontweight="bold", zorder=4, bbox=label_bbox))
+        label_texts.append(ax.text(x, y - 0.33, note, va="center", ha="left", color=MUTED,
+                fontsize=8.5, zorder=4, bbox=label_bbox))
 
     ax.set_yticks(ypos, labels)
     ax.tick_params(axis="y", colors=FG, labelsize=11, length=0)
@@ -81,6 +84,23 @@ def main() -> None:
     ax.set_axisbelow(True)
 
     fig.tight_layout()
+
+    # Extend the x-axis so the widest label (sub-label text, which can run
+    # past the bar) ends with real padding before the image's right edge,
+    # instead of running flush against it. Measured in actual rendered
+    # pixels so it holds regardless of font/DPI/label-length changes.
+    fig.canvas.draw()
+    renderer = fig.canvas.get_renderer()
+    axis_width_px = ax.get_window_extent(renderer=renderer).width
+    left, right = ax.get_xlim()
+    max_text_x_data = max(
+        ax.transData.inverted().transform((t.get_window_extent(renderer=renderer).x1, 0))[0]
+        for t in label_texts
+    )
+    pad_px = 40
+    new_right = left + (max_text_x_data - left) / (1 - pad_px / axis_width_px)
+    ax.set_xlim(left, max(right, new_right))
+
     os.makedirs(os.path.dirname(OUT_PATH), exist_ok=True)
     fig.savefig(OUT_PATH, facecolor=BG)
     print(f"[make_cost_chart] wrote {os.path.abspath(OUT_PATH)}")
