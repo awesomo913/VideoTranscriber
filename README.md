@@ -54,7 +54,7 @@
 | **Fully offline** | Runs on your machine — nothing leaves your device |
 | **Video + audio** | `.mp4 .mov .mkv .avi .mp3 .wav .m4a .webm .ogg .flac .aac .mpeg` handled directly |
 | **Timestamps** | `[00:01:42] segment text` format, toggleable |
-| **Auto CPU fallback** | Detects GPU; silently falls back to CPU if CUDA libraries are missing |
+| **Auto CPU fallback** | Detects GPU; automatically falls back to CPU if CUDA libraries are missing (noted in the log) |
 | **Model choice** | tiny / base / **small** (default) / medium / large-v3 |
 | **GUI + CLI** | Desktop window or command line |
 | **Batch / folder** | CLI: multiple paths, `--dir`, `--recursive`, `--combined` / `--combined-only`. GUI: File(s)…, Folder… |
@@ -164,13 +164,13 @@ No. After the Whisper model downloads once, everything runs locally on your mach
 <details>
 <summary>Does it use my GPU?</summary>
 
-If a supported CUDA GPU and its libraries are present, faster-whisper uses it automatically; otherwise it silently falls back to CPU. No manual configuration needed either way.
+If a supported CUDA GPU and its libraries are present, faster-whisper uses it automatically; otherwise it automatically falls back to CPU (noted in the log). No manual configuration needed either way.
 </details>
 
 <details>
 <summary>Does VideoTranscriber work on Mac or Linux?</summary>
 
-Yes for the CLI and (with a desktop environment) the GUI — see [TUTORIAL.md](TUTORIAL.md) for platform-specific setup, including Raspberry Pi and Android (Termux, CLI only). The prebuilt `.exe` is Windows-only; other platforms run from source.
+Yes for the CLI and (with a desktop environment) the GUI — see [TUTORIAL.md](TUTORIAL.md) for platform-specific setup, including Raspberry Pi and Android (Termux, CLI only). The prebuilt `.exe` is Windows-only; other platforms run from source. Automated CI (lint + tests) only runs on Windows; macOS and Linux are community-tested, not covered by CI.
 </details>
 
 <details>

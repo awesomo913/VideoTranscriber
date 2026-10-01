@@ -68,7 +68,7 @@ python transcribe_gui.py
 python transcribe_video.py devlog.mp4
 ```
 
-**Note on Apple Silicon (M1/M2/M3):** `faster-whisper` automatically uses the MPS GPU backend on macOS 13+ — transcription is fast without CUDA.
+**Note on Apple Silicon (M1/M2/M3):** `faster-whisper`'s backend (CTranslate2) only accelerates on CPU or NVIDIA CUDA — there is no MPS/Metal GPU support. On a Mac, transcription always runs on CPU; it's still fully offline and free, just not GPU-accelerated.
 
 ---
 
@@ -247,7 +247,7 @@ Output is clean prose — easier to grep or copy-paste.
 A: No. After the model downloads once (~480 MB), everything runs locally on your machine.
 
 **Q: Can I use a GPU?**
-A: Yes — CUDA (NVIDIA) on Windows/Linux, MPS on Apple Silicon Mac. The app auto-detects. If CUDA libs are missing, it silently falls back to CPU.
+A: Yes — CUDA (NVIDIA) on Windows/Linux. There is no GPU acceleration on macOS (CTranslate2 only supports CPU or CUDA, not MPS/Metal) — Macs always transcribe on CPU. The app auto-detects CUDA; if it's missing or its libraries can't load, it automatically falls back to CPU (noted in the log).
 
 **Q: What languages does it support?**
 A: All languages Whisper supports (~99). Language is auto-detected per file.

@@ -5,6 +5,20 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.1] - 2026-09-30
+
+### Fixed
+
+- `--combined`/`--combined-only` now write the merged transcript under `--out-dir` by default, instead of always defaulting to the Desktop — so the merged file lands next to the other transcripts when you've chosen a different output folder.
+- Re-transcribing the same file twice into a folder that already has both the plain `.txt` and the hash-suffixed backup no longer silently overwrites the second one — the app now keeps counting up (`_2`, `_3`, …) until it finds a free filename, so nothing you already saved gets clobbered.
+- GPU detection is sturdier: if loading the Whisper model itself fails because CUDA libraries are missing (not just a failure partway through transcribing), it now falls back to CPU the same way, logs the real underlying error for troubleshooting, and shows a calm "No compatible GPU found — using CPU" note instead of a scary-looking warning. On machines with no CUDA device at all, it skips the doomed GPU attempt entirely and goes straight to CPU.
+
+### Docs
+
+- Corrected a false claim that macOS gets GPU acceleration via Apple's MPS/Metal backend — the underlying engine (CTranslate2) only supports CPU or NVIDIA CUDA, so Macs always transcribe on CPU.
+- Reworded "silently falls back to CPU" to "automatically falls back to CPU (noted in the log)" so it's clear the fallback is visible in the app's log, not hidden.
+- Noted honestly that automated testing (CI) only runs on Windows; macOS and Linux support is community-tested, not CI-covered.
+
 ## [1.0.0] - 2026-09-30
 
 ### Added

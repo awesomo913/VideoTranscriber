@@ -1,6 +1,6 @@
 [project]
 name = "videotranscriber"
-version = "1.0.0"
+version = "1.0.1"
 description = "Offline, free, local video and audio transcription using faster-whisper."
 requires-python = ">=3.11"
 
