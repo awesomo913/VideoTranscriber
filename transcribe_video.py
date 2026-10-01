@@ -110,7 +110,12 @@ def default_transcript_output_dir() -> Path:
 
 
 def _output_txt_path(input_path: Path, output_dir: Path) -> Path:
-    """Build a unique .txt path under output_dir (hash suffix if name collides)."""
+    """Build a unique, never-overwriting .txt path under output_dir.
+
+    Tries ``<stem>.txt``, then ``<stem>_<hash>.txt``, then ``<stem>_<hash>_2.txt``,
+    ``_3``, etc. until a name that doesn't already exist is found. Re-running on
+    the same file must never silently clobber a previous transcript.
+    """
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     stem = input_path.stem
@@ -118,7 +123,15 @@ def _output_txt_path(input_path: Path, output_dir: Path) -> Path:
     if not candidate.exists():
         return candidate
     short = hashlib.sha1(str(input_path.resolve()).encode("utf-8")).hexdigest()[:8]
-    return output_dir / f"{stem}_{short}.txt"
+    candidate = output_dir / f"{stem}_{short}.txt"
+    if not candidate.exists():
+        return candidate
+    n = 2
+    while True:
+        candidate = output_dir / f"{stem}_{short}_{n}.txt"
+        if not candidate.exists():
+            return candidate
+        n += 1
 
 
 def format_timestamp(seconds: float) -> str:
@@ -165,6 +178,49 @@ def _load_whisper(model_name: str, device: str, compute: str):
     return WM(model_name, device=device, compute_type=compute)
 
 
+_CUDA_FAILURE_KEYWORDS = ("cublas", "cuda", "cufft", "dll", "library")
+
+
+def _is_cuda_failure(exc: Exception) -> bool:
+    return any(k in str(exc).lower() for k in _CUDA_FAILURE_KEYWORDS)
+
+
+def _cuda_available() -> bool:
+    """
+    Best-effort check for a CUDA device, so we can skip a doomed GPU attempt.
+
+    Returns True (meaning "try GPU as normal") when the check itself fails —
+    an unknown CUDA state should fall through to the existing auto/CPU
+    fallback path rather than assume no GPU exists.
+    """
+    try:
+        import ctranslate2
+        return ctranslate2.get_cuda_device_count() > 0
+    except Exception as exc:  # pragma: no cover - defensive, logged below
+        logger.warning("Could not check CUDA device count: %s", exc)
+        return True
+
+
+def _load_whisper_with_fallback(model_name: str) -> tuple[object, bool]:
+    """
+    Load the Whisper model, falling back to CPU/int8 if GPU construction fails
+    (or if no CUDA device is present at all).
+
+    Returns (model, used_cpu_fallback).
+    """
+    if not _cuda_available():
+        logger.info("No compatible GPU found — using CPU.")
+        return _load_whisper(model_name, "cpu", "int8"), True
+    try:
+        return _load_whisper(model_name, "auto", "auto"), False
+    except RuntimeError as exc:
+        if not _is_cuda_failure(exc):
+            raise
+        logger.warning("GPU model load failed: %s", exc)
+        logger.info("No compatible GPU found — using CPU.")
+        return _load_whisper(model_name, "cpu", "int8"), True
+
+
 def _run_transcribe_attempt(
     model: object,
     input_path: Path,
@@ -187,8 +243,8 @@ def _run_transcribe_attempt(
             if on_progress and inf.duration > 0:
                 on_progress(seg.end, inf.duration)
     except RuntimeError as exc:
-        keywords = ("cublas", "cuda", "cufft", "dll", "library")
-        if any(k in str(exc).lower() for k in keywords):
+        if _is_cuda_failure(exc):
+            logger.warning("GPU transcription failed: %s", exc)
             return None, None
         raise
     return collected, inf
@@ -313,16 +369,19 @@ def transcribe(
 
     size = MODEL_SIZES.get(model_name, "?")
     logger.info("Loading model '%s' (~%s — downloads on first use)…", model_name, size)
-    model = _load_whisper(model_name, "auto", "auto")
+    model, used_cpu = _load_whisper_with_fallback(model_name)
+    gpu_was_attempted = not used_cpu
     logger.info("Transcribing: %s", input_path.name)
 
     segments, info = _run_transcribe_attempt(model, input_path, on_segment, on_progress)
-    if segments is None:
-        logger.warning("GPU path failed — retrying on CPU.")
+    if segments is None and not used_cpu:
+        logger.info("No compatible GPU found — using CPU.")
         model = _load_whisper(model_name, "cpu", "int8")
         segments, info = _run_transcribe_attempt(model, input_path, on_segment, on_progress)
     if segments is None:
-        raise RuntimeError("Transcription failed on both GPU and CPU.")
+        if gpu_was_attempted:
+            raise RuntimeError("Transcription failed on both GPU and CPU.")
+        raise RuntimeError("Transcription failed on CPU.")
 
     return _write_transcript_text(
         input_path, segments, info, timestamps, output_dir=output_dir,
@@ -405,8 +464,7 @@ def _transcribe_batch_loop(
         len(paths), model_name, size,
     )
 
-    model = _load_whisper(model_name, "auto", "auto")
-    using_cpu = False
+    model, using_cpu = _load_whisper_with_fallback(model_name)
     results: list[tuple[Path, Exception | None]] = []
 
     for i, input_path in enumerate(paths, start=1):
@@ -423,11 +481,12 @@ def _transcribe_batch_loop(
 
         logger.info("Transcribing [%d/%d]: %s", i, len(paths), input_path.name)
 
+        gpu_was_attempted = not using_cpu
         try:
             segments, info = _run_transcribe_attempt(
                 model, input_path, on_segment, on_progress)
             if segments is None and not using_cpu:
-                logger.warning("GPU path failed — switching to CPU for remaining files.")
+                logger.info("No compatible GPU found — using CPU for remaining files.")
                 model = _load_whisper(model_name, "cpu", "int8")
                 using_cpu = True
                 segments, info = _run_transcribe_attempt(
@@ -438,7 +497,12 @@ def _transcribe_batch_loop(
             continue
 
         if segments is None:
-            err = RuntimeError("Transcription failed on both GPU and CPU.")
+            msg = (
+                "Transcription failed on both GPU and CPU."
+                if gpu_was_attempted
+                else "Transcription failed on CPU."
+            )
+            err = RuntimeError(msg)
             logger.error("[%d/%d] %s — %s", i, len(paths), input_path.name, err)
             results.append((input_path, err))
             continue
@@ -539,7 +603,7 @@ def _build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=None,
         metavar="FILE",
-        help="Path for merged transcript (default: Desktop/merged_transcripts.txt).",
+        help="Path for merged transcript (default: <out-dir>/merged_transcripts.txt).",
     )
     p.add_argument(
         "--combined-only",
@@ -578,7 +642,7 @@ def main() -> None:
         combined_path = (
             args.combined_out.resolve()
             if args.combined_out
-            else default_transcript_output_dir() / "merged_transcripts.txt"
+            else out_dir / "merged_transcripts.txt"
         )
         logger.info("Merged output file: %s", combined_path)
 

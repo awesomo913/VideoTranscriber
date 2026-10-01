@@ -53,6 +53,43 @@ class TestOutputTxtPath:
         r2 = tv._output_txt_path(input_path, tmp_path)
         assert r1 == r2
 
+    def test_never_overwrites_when_hash_suffixed_name_also_exists(self, tmp_path):
+        """
+        Regression test: re-running on the same stem twice used to silently
+        overwrite the hash-suffixed transcript from the second run.
+        """
+        input_path = tmp_path / "devlog.mp4"
+        (tmp_path / "devlog.txt").write_text("run 1")
+        hashed = tv._output_txt_path(input_path, tmp_path)
+        hashed.write_text("run 2")
+
+        result = tv._output_txt_path(input_path, tmp_path)
+
+        assert result != (tmp_path / "devlog.txt")
+        assert result != hashed
+        assert result.name.startswith("devlog_")
+        assert result.name.endswith("_2.txt")
+        # Nothing already on disk was touched by just computing the path.
+        assert (tmp_path / "devlog.txt").read_text() == "run 1"
+        assert hashed.read_text() == "run 2"
+
+    def test_never_overwrites_across_many_repeated_collisions(self, tmp_path):
+        input_path = tmp_path / "devlog.mp4"
+        (tmp_path / "devlog.txt").write_text("run 1")
+        hashed = tv._output_txt_path(input_path, tmp_path)
+        hashed.write_text("run 2")
+
+        seen_paths = {tmp_path / "devlog.txt", hashed}
+        for i in range(5):
+            p = tv._output_txt_path(input_path, tmp_path)
+            assert p not in seen_paths
+            p.write_text(f"run {i + 3}")
+            seen_paths.add(p)
+
+        # Every file written above must still exist, untouched by later calls.
+        for path in seen_paths:
+            assert path.exists()
+
 
 class TestDefaultTranscriptOutputDir:
     def test_falls_back_to_home_when_desktop_missing(self, monkeypatch, tmp_path):

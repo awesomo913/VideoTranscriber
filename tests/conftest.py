@@ -11,6 +11,22 @@ from types import SimpleNamespace
 
 import pytest
 
+import transcribe_video as tv
+
+
+@pytest.fixture(autouse=True)
+def _default_cuda_available(monkeypatch):
+    """
+    Pin the "is there a CUDA device" check to True by default.
+
+    Without this, tests that exercise the GPU->CPU fallback path would behave
+    differently depending on whether the machine actually running the test
+    suite (dev box vs. a GPU-less CI runner) has a CUDA device — the model is
+    always mocked, but the real ctranslate2.get_cuda_device_count() is not.
+    Tests for the "no CUDA device at all" case override this explicitly.
+    """
+    monkeypatch.setattr(tv, "_cuda_available", lambda: True)
+
 
 class FakeSegment:
     """Stand-in for a faster_whisper Segment (only the fields we read)."""

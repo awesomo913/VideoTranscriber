@@ -48,6 +48,13 @@ class TestArgParser:
         with pytest.raises(SystemExit):
             tv._build_parser().parse_args(["clip.mp4", "--model", "huge"])
 
+    def test_combined_out_help_describes_out_dir_default(self):
+        """Regression guard: help text must match the --out-dir-based default."""
+        parser = tv._build_parser()
+        action = next(a for a in parser._actions if "--combined-out" in a.option_strings)
+        assert "<out-dir>/merged_transcripts.txt" in action.help
+        assert "Desktop" not in action.help
+
 
 class TestMainOutDir:
     def test_single_file_respects_out_dir(self, tmp_path, monkeypatch):
@@ -97,6 +104,29 @@ class TestMainCombined:
         _run_main(monkeypatch, [str(a), "--combined"])
         assert (default_dir / "merged_transcripts.txt").exists()
         assert (default_dir / "a.txt").exists()
+
+    def test_combined_default_path_respects_out_dir(self, tmp_path, monkeypatch):
+        """Regression test: --combined with --out-dir must not write to Desktop."""
+        a = _touch(tmp_path / "a.mp4")
+        default_dir = tmp_path / "desktop"
+        default_dir.mkdir()
+        out_dir = tmp_path / "custom_out"
+        monkeypatch.setattr(tv, "default_transcript_output_dir", lambda: default_dir)
+        _run_main(monkeypatch, [str(a), "--combined", "--out-dir", str(out_dir)])
+        assert (out_dir / "merged_transcripts.txt").exists()
+        assert not (default_dir / "merged_transcripts.txt").exists()
+
+    def test_combined_only_default_path_respects_out_dir(self, tmp_path, monkeypatch):
+        """Regression test: --combined-only with --out-dir must not write to Desktop."""
+        a = _touch(tmp_path / "a.mp4")
+        default_dir = tmp_path / "desktop"
+        default_dir.mkdir()
+        out_dir = tmp_path / "custom_out"
+        monkeypatch.setattr(tv, "default_transcript_output_dir", lambda: default_dir)
+        _run_main(monkeypatch, [str(a), "--combined-only", "--out-dir", str(out_dir)])
+        assert (out_dir / "merged_transcripts.txt").exists()
+        assert not (out_dir / "a.txt").exists()
+        assert not default_dir.exists() or not any(default_dir.iterdir())
 
     def test_batch_exits_nonzero_when_any_file_fails(self, tmp_path, monkeypatch):
         good = _touch(tmp_path / "good.mp4")
