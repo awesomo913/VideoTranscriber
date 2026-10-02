@@ -35,12 +35,15 @@ DATA = [
     ("VideoTranscriber", 0, "free, forever"),
 ]
 
-BG = "#12161f"
-FG = "#e6edf3"
-ACCENT = "#4fc3f7"
-MUTED = "#8899aa"
-FREE_COLOR = "#4ecca3"
-PAID_COLOR = "#4d6a8a"
+# Warm paper + typewriter identity (matches docs/assets/banner.svg).
+BG = "#f1e8d3"          # cream paper
+FG = "#1b1814"          # ink black
+MUTED = "#4a4238"       # faded ink
+FREE_COLOR = "#a3281f"  # deep red accent
+PAID_COLOR = "#5d6b7c"  # muted ink blue-grey
+GRID = "#d3c7ab"
+SERIF = ["Georgia", "Times New Roman", "DejaVu Serif"]
+MONO = ["Courier New", "Consolas", "DejaVu Sans Mono"]
 
 
 def main() -> None:
@@ -54,7 +57,7 @@ def main() -> None:
     ax.set_facecolor(BG)
 
     ypos = list(range(len(DATA)))[::-1]
-    # A sliver so the $0 row still shows a visible teal marker.
+    # A sliver so the $0 row still shows a visible red marker.
     shown = [v if v > 0 else top * 0.012 for v in values]
     ax.barh(ypos, shown, color=colors, height=0.62, zorder=3)
 
@@ -65,25 +68,27 @@ def main() -> None:
         color = FREE_COLOR if value == 0 else FG
         x = max(value, top * 0.012) + top * 0.015
         label_texts.append(ax.text(x, y, price, va="center", ha="left", color=color,
-                fontsize=13, fontweight="bold", zorder=4, bbox=label_bbox))
+                fontsize=13, fontweight="bold", family=MONO, zorder=4, bbox=label_bbox))
         label_texts.append(ax.text(x, y - 0.33, note, va="center", ha="left", color=MUTED,
-                fontsize=8.5, zorder=4, bbox=label_bbox))
+                fontsize=8.5, family=MONO, zorder=4, bbox=label_bbox))
 
     ax.set_yticks(ypos, labels)
     ax.tick_params(axis="y", colors=FG, labelsize=11, length=0)
+    for tick in ax.get_yticklabels() + ax.get_xticklabels():
+        tick.set_family(MONO)
     ax.tick_params(axis="x", colors=MUTED, labelsize=9)
     ax.set_xlim(0, top * 1.28)
     ax.set_xlabel("USD per year (cheapest individual plan, billed yearly) — checked 2026-09-30",
-                  color=MUTED, fontsize=8.5)
+                  color=MUTED, fontsize=8.5, family=MONO)
     ax.set_title("What a year of transcription costs", color=FG, fontsize=14, pad=14,
-                 loc="left", fontweight="bold")
+                 loc="left", fontweight="bold", family=SERIF)
     for side in ("top", "right", "left"):
         ax.spines[side].set_visible(False)
-    ax.spines["bottom"].set_color("#2a3444")
-    ax.xaxis.grid(True, color="#2a3444", linewidth=0.7, zorder=0)
+    ax.spines["bottom"].set_color(GRID)
+    ax.xaxis.grid(True, color=GRID, linewidth=0.7, zorder=0)
     ax.set_axisbelow(True)
 
-    fig.tight_layout()
+    fig.tight_layout(pad=2.2)
 
     # Extend the x-axis so the widest label (sub-label text, which can run
     # past the bar) ends with real padding before the image's right edge,

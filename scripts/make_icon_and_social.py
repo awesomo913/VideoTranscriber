@@ -129,10 +129,8 @@ def main() -> None:
     icon.save(icon_path)
     print(f"[make_icon] wrote {os.path.abspath(icon_path)}")
 
-    social = make_social_preview(icon)
-    social_path = os.path.join(ASSETS, "social-preview.png")
-    social.save(social_path)
-    print(f"[make_icon] wrote {os.path.abspath(social_path)}")
+    # social-preview.png now comes from docs/assets/social-preview.svg
+    # (paper + typewriter identity) via scripts/render_social_preview.py.
 
 
 if __name__ == "__main__":
